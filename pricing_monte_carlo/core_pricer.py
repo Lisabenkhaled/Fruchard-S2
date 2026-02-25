@@ -77,7 +77,7 @@ def core_price(
         kwargs = {"basis": p.basis, "degree": p.degree, "digital_strike": p.digital_strike, "payout": p.digital_payout}
 
     # Vanilla options
-    if ex_style == "european":
+    elif ex_style == "european":
         pricer = (
             price_european_naive_mc_vector
             if p.method == "vector"
