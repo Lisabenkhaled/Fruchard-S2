@@ -1,5 +1,4 @@
 import time
-import math
 from dataclasses import dataclass, field
 from typing import Literal, Tuple, Sequence
 
@@ -77,7 +76,7 @@ def core_price(
         kwargs = {"basis": p.basis, "degree": p.degree, "digital_strike": p.digital_strike, "payout": p.digital_payout}
 
     # Vanilla options
-    elif ex_style == "european":
+    if ex_style == "european":
         pricer = (
             price_european_naive_mc_vector
             if p.method == "vector"

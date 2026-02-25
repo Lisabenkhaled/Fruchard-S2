@@ -24,7 +24,7 @@ if __name__ == "__main__":
     )
 
     params = CorePricingParams(
-        n_paths=200_000,
+        n_paths=2000,
         n_steps=365,
         seed=127,
         antithetic=False,

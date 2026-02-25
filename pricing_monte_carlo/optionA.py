@@ -23,7 +23,7 @@ def main():
     )
 
     params = CorePricingParams(
-        n_paths=200_000,
+        n_paths=2000,
         n_steps=200,
         seed=127,
         antithetic=False,
