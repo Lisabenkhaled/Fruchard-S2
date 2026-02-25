@@ -15,7 +15,7 @@ from core_pricer import CorePricingParams, core_price
 def naive_am_vs_tree(
     market,
     trade,
-    n_paths_list=(2_000, 5_000, 10_000, 20_000, 50_000, 100_000),
+    n_paths_list=(2_000, 5_000, 10_000),
     n_steps_mc=200,
     tree_steps=2_000,
     fixed_seed=42,
@@ -103,7 +103,7 @@ trade = OptionTrade(
 results = naive_am_vs_tree(
     market=market,
     trade=trade,
-    n_paths_list=(100, 500, 1000, 2_000, 5_000, 10_000, 20_000),
+    n_paths_list=(100, 500, 1000,),
     n_steps_mc=100,
     tree_steps=500,
     fixed_seed=42,

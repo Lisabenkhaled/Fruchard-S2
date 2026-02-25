@@ -131,7 +131,7 @@ if __name__ == "__main__":
         div_amount=0.0
     )
 
-    N_list = [1000, 2000, 5000, 10000, 20000, 50000]
+    N_list = [1000, 2000, 5000]
     seeds = list(range(1, 501))
 
     study_antithetic_effect_on_std_eu(
