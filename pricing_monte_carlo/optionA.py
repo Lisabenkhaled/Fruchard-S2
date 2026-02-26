@@ -23,10 +23,10 @@ def main():
     )
 
     params = CorePricingParams(
-        n_paths=2000,
+        n_paths=100000,
         n_steps=200,
         seed=127,
-        antithetic=False,
+        antithetic=True,
         method="vector",
         american_algo="ls",
         basis="laguerre",

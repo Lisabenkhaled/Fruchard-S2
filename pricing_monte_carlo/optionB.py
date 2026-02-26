@@ -57,7 +57,7 @@ if __name__ == "__main__":
     exercise_steps = bermudan_exercise_steps(pricing_date, maturity_date, n_steps)
 
     params = CorePricingParams(
-        n_paths=2000,
+        n_paths=100000,
         n_steps=n_steps,
         seed=127,
         antithetic=False,

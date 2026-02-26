@@ -40,7 +40,7 @@ def price_bermudan_put_ls_vector(
     if n_steps not in ex_set:
         ex_set.add(n_steps)
 
-    S = simulate_gbm_paths_vector(
+    _, S = simulate_gbm_paths_vector(
         market, trade, n_paths, n_steps, seed=seed, antithetic=antithetic
     )
     if S.shape[0] != n_steps + 1:
@@ -71,9 +71,9 @@ def price_bermudan_put_ls_vector(
 
         itm = immediate > 0.0
         if np.any(itm):
-            X = design_matrix(St[itm], basis=basis, degree=degree)
+            X = design_matrix(St[itm], basis=basis, degree=degree, scale=K)
             cont = np.zeros_like(V)
-            cont[itm] = ols_fit_predict(X, V[itm])
+            cont[itm] = ols_fit_predict(X, V[itm], X)
         else:
             cont = np.zeros_like(V)
 
@@ -101,7 +101,7 @@ def price_american_digital_ls_vector(
     if n_steps < 1:
         raise ValueError("n_steps must be >= 1")
 
-    S = simulate_gbm_paths_vector(
+    _, S = simulate_gbm_paths_vector(
         market, trade, n_paths, n_steps, seed=seed, antithetic=antithetic
     )
     if S.shape[0] != n_steps + 1:
@@ -126,9 +126,9 @@ def price_american_digital_ls_vector(
 
         itm = immediate > 0.0
         if np.any(itm):
-            X = design_matrix(St[itm], basis=basis, degree=degree)
+            X = design_matrix(St[itm], basis=basis, degree=degree, scale=Kd)
             cont = np.zeros_like(V)
-            cont[itm] = ols_fit_predict(X, V[itm])
+            cont[itm] = ols_fit_predict(X, V[itm], X)
         else:
             cont = np.zeros_like(V)
 

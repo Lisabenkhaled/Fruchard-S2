@@ -4,7 +4,7 @@ from typing import Literal, Tuple, Sequence
 
 from model.market import Market
 from model.option import OptionTrade
-from utils.utils_stats import sample_std, standard_error
+from utils.utils_stats import sample_std, standard_error, sample_std_anti, standard_error_anti
 
 from model.mc_pricer import (
     # European
@@ -133,8 +133,12 @@ def core_price(
 
     price, discounted_payoffs = result[0], result[1]
 
-    std = sample_std(discounted_payoffs)
-    se = standard_error(discounted_payoffs)
+    if p.antithetic:
+        std = sample_std_anti(discounted_payoffs)
+        se  = standard_error_anti(discounted_payoffs)
+    else:
+        std = sample_std(discounted_payoffs)
+        se  = standard_error(discounted_payoffs)
 
     return price, std, se, elapsed
 
@@ -174,5 +178,4 @@ if __name__ == "__main__":
     print("Price:", price)
     print("Std:", std)
     print("Std Error:", se)
-    print("95% CI:", price - 1.96 * se, "to", price + 1.96 * se)
     print("Time:", elapsed)
