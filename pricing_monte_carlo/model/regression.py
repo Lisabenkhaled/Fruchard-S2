@@ -20,7 +20,7 @@ def _laguerre_basis(x: np.ndarray, degree: int) -> np.ndarray:
     return L
 
 
-# Design matrix for regression, supporting both power and Laguerre bases
+# Design matrix for regression
 def design_matrix(
     S: np.ndarray,
     degree: int = 2,

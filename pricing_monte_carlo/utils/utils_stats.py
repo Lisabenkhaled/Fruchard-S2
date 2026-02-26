@@ -9,14 +9,14 @@ def sample_variance(x: np.ndarray) -> float:
     return float(np.var(x, ddof=1))
 
 def sample_std(x: np.ndarray) -> float:
-    return float(np.std(x, ddof=1))
+    return float(np.std(x, ddof=0))
 
 # Monte Carlo Statistics
 
 # Standard Error
 def standard_error(x: np.ndarray) -> float:
     n = len(x)
-    return float(np.std(x, ddof=1) / np.sqrt(n))
+    return float(np.std(x, ddof=0) / np.sqrt(n))
 
 # Confidence Interval
 def confidence_interval(x: np.ndarray,

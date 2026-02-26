@@ -1,19 +1,16 @@
 import datetime as dt
-
 from model.market import Market
 from model.option import OptionTrade
 from core_pricer import CorePricingParams, core_price
 
-
 if __name__ == "__main__":
-
     pricing_date = dt.date(2026, 2, 26)
     maturity_date = dt.date(2027, 4, 26)
 
     market = Market(S0=100.0, r=0.04, sigma=0.25)
 
     trade = OptionTrade(
-        strike=90.0,
+        strike=99.0,  # not used by pricer, ok
         is_call=False,
         exercise="digital_american",
         pricing_date=pricing_date,
@@ -24,20 +21,18 @@ if __name__ == "__main__":
     )
 
     params = CorePricingParams(
-        n_paths=2000,
+        n_paths=200_000,
         n_steps=365,
         seed=127,
         antithetic=False,
         method="vector",
-        basis="laguerre",
-        degree=2,
-        digital_strike=90.0,
+        digital_strike=99.0,
         digital_payout=1.0,
     )
 
     price, std, se, elapsed = core_price(market, trade, params)
 
-    print("\n=== OPTION D: American Digital K=90 ===")
+    print("=== OPTION C: American Digital Down K=99 ===")
     print("Price:", price)
     print("Std:", std)
     print("Std Error:", se)

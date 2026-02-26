@@ -39,9 +39,6 @@ params_eu = CorePricingParams(
     # if your CorePricingParams includes american_algo/basis/degree, you can leave defaults
 )
 
-# -----------------------
-# MC Greeks
-# -----------------------
 greeks_eu = compute_greeks_vector(market, trade_eu, params_eu)
 
 print("EU (MC VECTOR)")
@@ -51,9 +48,6 @@ for k, v in greeks_eu.items():
     except Exception:
         print(f"{k}: {v}")
 
-# -----------------------
-# Tree Greeks (Backward only)
-# -----------------------
 tree_greeks = tree_greeks_from_mc(
     mc_market=market,
     mc_trade=trade_eu,

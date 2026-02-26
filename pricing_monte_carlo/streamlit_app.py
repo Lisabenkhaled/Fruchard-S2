@@ -339,6 +339,89 @@ def run_stress_regression(
     reg_df = pd.DataFrame(reg_rows)
     return prices_df, reg_df
 
+def run_mc_greeks(
+    market: Market,
+    trade: OptionTrade,
+    n_paths: int,
+    n_steps: int,
+    seed: int,
+    method: str,
+    antithetic: bool,
+    american_algo: str,
+    basis: str,
+    degree: int,
+    bermudan_steps: list[int],
+    digital_strike: float | None,
+    digital_payout: float,
+    eps_spot: float,
+    eps_vol: float,
+    eps_rate: float,
+    eps_time_days: int,
+) -> pd.DataFrame:
+    n_paths_used = normalize_n_paths(n_paths, antithetic)
+    params = CorePricingParams(
+        n_paths=n_paths_used,
+        n_steps=n_steps,
+        seed=seed,
+        antithetic=antithetic,
+        method=method,
+        american_algo=american_algo,
+        basis=basis,
+        degree=degree,
+        exercise_steps=bermudan_steps,
+        digital_strike=digital_strike,
+        digital_payout=digital_payout,
+    )
+
+    base_price, _, _, _ = core_price(market, trade, params)
+
+    market_spot_up = Market(S0=market.S0 + eps_spot, r=market.r, sigma=market.sigma)
+    market_spot_down = Market(S0=max(market.S0 - eps_spot, 1e-8), r=market.r, sigma=market.sigma)
+    spot_up_price, _, _, _ = core_price(market_spot_up, trade, params)
+    spot_down_price, _, _, _ = core_price(market_spot_down, trade, params)
+    delta = (spot_up_price - spot_down_price) / (2.0 * eps_spot)
+    gamma = (spot_up_price - 2.0 * base_price + spot_down_price) / (eps_spot ** 2)
+
+    sigma_down = max(market.sigma - eps_vol, 1e-8)
+    market_vol_up = Market(S0=market.S0, r=market.r, sigma=market.sigma + eps_vol)
+    market_vol_down = Market(S0=market.S0, r=market.r, sigma=sigma_down)
+    vol_up_price, _, _, _ = core_price(market_vol_up, trade, params)
+    vol_down_price, _, _, _ = core_price(market_vol_down, trade, params)
+    vega = (vol_up_price - vol_down_price) / (2.0 * eps_vol)
+
+    market_rate_up = Market(S0=market.S0, r=market.r + eps_rate, sigma=market.sigma)
+    market_rate_down = Market(S0=market.S0, r=market.r - eps_rate, sigma=market.sigma)
+    rate_up_price, _, _, _ = core_price(market_rate_up, trade, params)
+    rate_down_price, _, _, _ = core_price(market_rate_down, trade, params)
+    rho = (rate_up_price - rate_down_price) / (2.0 * eps_rate)
+
+    max_decay_days = (trade.maturity_date - trade.pricing_date).days - 1
+    effective_decay_days = min(max(eps_time_days, 1), max(max_decay_days, 1))
+    theta = np.nan
+    if max_decay_days >= 1:
+        shorter_trade = OptionTrade(
+            strike=trade.strike,
+            is_call=trade.is_call,
+            exercise=trade.exercise,
+            pricing_date=trade.pricing_date,
+            maturity_date=trade.maturity_date - dt.timedelta(days=effective_decay_days),
+            q=trade.q,
+            ex_div_date=trade.ex_div_date,
+            div_amount=trade.div_amount,
+        )
+        shorter_price, _, _, _ = core_price(market, shorter_trade, params)
+        theta = (shorter_price - base_price) / (effective_decay_days / 365.0)
+
+    return pd.DataFrame(
+        [
+            {"greek": "price", "value": base_price},
+            {"greek": "delta", "value": delta},
+            {"greek": "gamma", "value": gamma},
+            {"greek": "vega", "value": vega},
+            {"greek": "rho", "value": rho},
+            {"greek": "theta", "value": theta},
+        ]
+    )
 
 st.set_page_config(page_title="Unified Pricing Dashboard (MC + Tree)", layout="wide")
 st.title("📈 Unified Pricing Dashboard: Monte Carlo + Pricing Tree")
@@ -392,7 +475,11 @@ with st.sidebar:
     st.subheader("Convergence MC (optionnel)")
     conv_method = st.selectbox("Méthode convergence", options=["vector", "scalar"], index=0)
     conv_antithetic = st.toggle("Antithetic convergence", value=False)
-
+    st.subheader("Greeks (différences finies)")
+    eps_spot = st.number_input("Epsilon spot (ΔS)", min_value=0.0001, value=0.5, step=0.1, format="%.4f")
+    eps_vol = st.number_input("Epsilon vol (Δσ)", min_value=0.0001, value=0.01, step=0.005, format="%.4f")
+    eps_rate = st.number_input("Epsilon taux (Δr)", min_value=0.0001, value=0.001, step=0.0005, format="%.4f")
+    eps_time_days = st.slider("Epsilon temps (jours)", min_value=1, max_value=30, value=1)
     st.header("Onglets à exécuter")
     selected_panels = st.multiselect(
         "Sélectionne ce que tu veux lancer",
@@ -401,6 +488,7 @@ with st.sidebar:
             "Comparatif performances MC",
             "Comparatif MC vs Tree",
             "Convergence MC",
+            "Greeks (MC)",
             "Régression de sensibilité",
         ],
         default=["Prix + Ecart-type"],
@@ -490,15 +578,15 @@ elif run_btn:
                         )
                     st.dataframe(mc_df, use_container_width=True)
 
-                    st.markdown("**Moyennes par configuration (method × antithetic)**")
+                    st.markdown("*Moyennes par configuration (method × antithetic)*")
                     by_combo = mc_df.groupby(["method", "antithetic"], as_index=False)[["price", "std", "se", "time_s"]].mean()
                     st.dataframe(by_combo, use_container_width=True)
 
-                    st.markdown("**Moyennes par antithetic**")
+                    st.markdown("*Moyennes par antithetic*")
                     by_anti = mc_df.groupby(["antithetic"], as_index=False)[["price", "std", "se", "time_s"]].mean()
                     st.dataframe(by_anti, use_container_width=True)
 
-                    st.markdown("**Moyennes par méthode (scalar vs vector)**")
+                    st.markdown("*Moyennes par méthode (scalar vs vector)*")
                     by_method = mc_df.groupby(["method"], as_index=False)[["price", "std", "se", "time_s"]].mean()
                     st.dataframe(by_method, use_container_width=True)
 
@@ -567,7 +655,37 @@ elif run_btn:
             st.metric("Pente log(SE) vs log(Npaths)", f"{conv_slope:.4f}")
             st.dataframe(conv_df, use_container_width=True)
             st.line_chart(conv_df.set_index("n_paths")["se"])
+    if "Greeks (MC)" in tab_map:
+        with tab_map["Greeks (MC)"]:
+            with st.spinner("Calcul des Greeks MC par différences finies..."):
+                greeks_df = run_mc_greeks(
+                    market=market,
+                    trade=trade,
+                    n_paths=int(n_paths),
+                    n_steps=int(n_steps),
+                    seed=int(seed),
+                    method=simple_method,
+                    antithetic=bool(simple_antithetic),
+                    american_algo=american_algo,
+                    basis=basis,
+                    degree=int(degree),
+                    bermudan_steps=bermudan_steps,
+                    digital_strike=digital_strike_in,
+                    digital_payout=float(digital_payout),
+                    eps_spot=float(eps_spot),
+                    eps_vol=float(eps_vol),
+                    eps_rate=float(eps_rate),
+                    eps_time_days=int(eps_time_days),
+                )
 
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Delta", f"{greeks_df.loc[greeks_df['greek'] == 'delta', 'value'].iat[0]:.6f}")
+            c2.metric("Gamma", f"{greeks_df.loc[greeks_df['greek'] == 'gamma', 'value'].iat[0]:.6f}")
+            c3.metric("Vega", f"{greeks_df.loc[greeks_df['greek'] == 'vega', 'value'].iat[0]:.6f}")
+            st.dataframe(greeks_df, use_container_width=True)
+            st.caption(
+                "Les valeurs sont obtenues par différences finies centrées avec les epsilons réglés dans la barre latérale."
+            )
     if "Régression de sensibilité" in tab_map:
         with tab_map["Régression de sensibilité"]:
             var_name = st.selectbox("Variable stress", options=["s0", "sigma", "r", "strike"], index=0)

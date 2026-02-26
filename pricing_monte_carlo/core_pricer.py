@@ -25,6 +25,11 @@ from model.mc_pricer_exotics import (
     price_american_digital_ls_scalar,
 )
 
+from model.mc_pricer_digital import (
+    price_american_digital_first_hit_vector,
+    price_american_digital_first_hit_scalar,
+)
+
 Method = Literal["vector", "scalar"]
 AmericanAlgo = Literal["naive", "ls"]
 Basis = Literal["power", "laguerre"]
@@ -69,14 +74,25 @@ def core_price(
         pricer = price_bermudan_put_ls_vector if p.method == "vector" else price_bermudan_put_ls_scalar
         kwargs = {"basis": p.basis, "degree": p.degree, "exercise_steps": p.exercise_steps}
 
+    #elif ex_style == "digital_american":
+        #if p.digital_strike is None:
+            #raise ValueError("digital_strike must be provided for digital_american")
+        #pricer = price_american_digital_ls_vector if p.method == "vector" else price_american_digital_ls_scalar
+        #kwargs = {"basis": p.basis, "degree": p.degree, "digital_strike": p.digital_strike, "payout": p.digital_payout}
+
     elif ex_style == "digital_american":
         if p.digital_strike is None:
             raise ValueError("digital_strike must be provided for digital_american")
-        pricer = price_american_digital_ls_vector if p.method == "vector" else price_american_digital_ls_scalar
-        kwargs = {"basis": p.basis, "degree": p.degree, "digital_strike": p.digital_strike, "payout": p.digital_payout}
+
+        pricer = (
+            price_american_digital_first_hit_vector
+            if p.method == "vector"
+            else price_american_digital_first_hit_scalar
+        )
+        kwargs = {"digital_strike": p.digital_strike, "payout": p.digital_payout}
 
     # Vanilla options
-    if ex_style == "european":
+    elif ex_style == "european":
         pricer = (
             price_european_naive_mc_vector
             if p.method == "vector"
@@ -126,27 +142,27 @@ def core_price(
 if __name__ == "__main__":
     import datetime as dt
 
-    pricing_date = dt.date(2026, 2, 26)
-    maturity_date = dt.date(2027, 3, 1)
+    pricing_date = dt.date(2026, 3, 1)
+    maturity_date = dt.date(2026, 12, 26)
 
-    market = Market(S0=36.0, r=0.06, sigma=0.20)
+    market = Market(S0=100, r=0.10, sigma=0.20)
 
     trade = OptionTrade(
-        strike=40.0,
-        is_call=False,
+        strike=100.0,
+        is_call=True,
         exercise="american",
-        pricing_date=dt.date(2026, 3, 1),
-        maturity_date=dt.date(2027, 3, 1),
+        pricing_date=pricing_date,
+        maturity_date=maturity_date,
         q=0.0,
         ex_div_date=dt.date(2026, 5, 29),
-        div_amount=0.0,
+        div_amount=3.0,
     )
 
     params = CorePricingParams(
         n_paths=100_000,
-        n_steps=50,
-        seed=127,
-        antithetic=False,
+        n_steps=100,
+        seed=1,
+        antithetic=True,
         method="vector",
         american_algo="ls",
         basis="laguerre",
