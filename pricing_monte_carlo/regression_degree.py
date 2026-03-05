@@ -134,11 +134,11 @@ if __name__ == "__main__":
         pricing_date=pricing_date,
         maturity_date=maturity_date,
         q=0.0,
-        ex_div_date=None,
-        div_amount=0.0
+        ex_div_date=dt.date(2026, 10, 30),
+        div_amount=3.0
     )
 
-    degrees = [1, 2, 3, 4, 5, 6, 7]
+    degrees = [1, 2, 3, 4, 5, 6, 7, 8]
     seed = 42
 
     compare_bases_one_seed(

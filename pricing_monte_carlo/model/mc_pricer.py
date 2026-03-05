@@ -168,6 +168,75 @@ def price_american_ls_scalar(
     return price, discounted_cf
 
 
+# Longstaff–Schwartz American option pricer scalar version
+def price_american_ls_scalar(
+    market: Market,
+    trade: OptionTrade,
+    n_paths: int,
+    n_steps: int,
+    seed: int = 0,
+    antithetic: bool = False,
+    basis: str = "laguerre",
+    degree: int = 2,
+) -> float:
+
+    _, S = simulate_gbm_paths_scalar(
+        market=market,
+        trade=trade,
+        n_paths=n_paths,
+        n_steps=n_steps,
+        seed=seed,
+        antithetic=antithetic,
+    )
+
+    r = float(market.r)
+    dt = float(trade.T) / n_steps
+    df = np.exp(-r * dt)
+
+
+    V = np.empty(n_paths, dtype=float)
+    for i in range(n_paths):
+        V[i] = trade.payoff_scalar(S[i, -1])
+
+    # Backward induction
+    for j in range(n_steps - 1, 0, -1):
+        for i in range(n_paths):
+            V[i] = df * V[i]
+
+        # Compute intrinsic values at time j
+        exercise = np.empty(n_paths, dtype=float)
+        for i in range(n_paths):
+            exercise[i] = trade.payoff_scalar(S[i, j])
+
+        # ITM indices
+        itm_idx = np.where(exercise > 0.0)[0]
+        if itm_idx.size == 0:
+            continue
+
+        Sj_itm = S[itm_idx, j]
+        Y = V[itm_idx]
+
+        # Regression on ITM only
+        X = design_matrix(
+            Sj_itm,
+            degree=degree,
+            basis=basis,
+            scale=trade.strike,
+        )
+
+        cont = ols_fit_predict(X, Y, X)
+
+        # Exercise decision
+        for k, idx in enumerate(itm_idx):
+            if exercise[idx] >= cont[k]:
+                V[idx] = exercise[idx]
+
+    discounted_cf = df * V
+    price = float(discounted_cf.mean())
+
+    return price, discounted_cf
+
+
 # Longstaff–Schwartz American option pricer vectorized version
 def price_american_ls_vector(
     market: Market,

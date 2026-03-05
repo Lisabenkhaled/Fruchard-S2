@@ -3,6 +3,9 @@ from model.market import Market
 from model.option import OptionTrade
 from model.brownian import BrownianMotion
 
+LAST_TIMES = None
+LAST_PATHS = None
+
 # Time grid helper
 def _step_times(T: float, n_steps: int) -> np.ndarray:
     return np.linspace(0.0, T, n_steps + 1)
@@ -102,6 +105,8 @@ def simulate_gbm_paths_vector(
     seed: int = 0,
     antithetic: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
+    
+    global LAST_TIMES, LAST_PATHS
 
     T = float(trade.T)
     if T <= 0.0:
@@ -154,5 +159,7 @@ def simulate_gbm_paths_vector(
     if j_div < n_steps:
         tail_cum = np.cumprod(R[:, j_div:], axis=1)  # length n_steps - j_div
         paths[:, j_div + 1:] = paths[:, [j_div]] * tail_cum
+
+    LAST_TIMES, LAST_PATHS = times, paths
 
     return times, paths

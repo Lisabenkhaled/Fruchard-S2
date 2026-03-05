@@ -92,7 +92,7 @@ if __name__ == "__main__":
         div_amount=0.0,
     )
 
-    N_list = [1000, 2000, 5000]
+    N_list = [500, 1000, 2000, 5000, 10000, 15000, 20000]
     seeds = list(range(1, 1001))
 
     convergence_rate_plot(
@@ -103,3 +103,5 @@ if __name__ == "__main__":
         seeds=seeds,
         antithetic=True,
     )
+
+## add bench tree when div

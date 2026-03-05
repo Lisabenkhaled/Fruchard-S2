@@ -48,11 +48,11 @@ def naive_am_vs_tree(
             antithetic=bool(antithetic),
             method=method_mc,
             american_algo="naive",
-            basis="power",
+            basis="laguerre",
             degree=2
         )
 
-        price, elapsed_time = core_price(market, trade, params)
+        price, _, _, _ = core_price(market, trade, params)
         naive_prices.append(float(price))
 
 
@@ -103,9 +103,9 @@ trade = OptionTrade(
 results = naive_am_vs_tree(
     market=market,
     trade=trade,
-    n_paths_list=(100, 500, 1000,),
-    n_steps_mc=100,
-    tree_steps=500,
+    n_paths_list=(100, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000),
+    n_steps_mc=250,
+    tree_steps=250,
     fixed_seed=42,
     antithetic=True,
     method_mc="vector",
