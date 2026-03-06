@@ -1,73 +1,104 @@
-from typing import Callable
-from dataclasses import replace
+from typing import Callable, Dict, Tuple
+import datetime as dt
+
 from model.market import Market
 from model.option import OptionTrade
 from core_pricer import CorePricingParams
+from utils.utils_grecs import OneDimDerivative
 
-# Type d'une fonction de pricing:
-# elle prend (market, trade, params) et renvoie un float (le prix)
 PriceFn = Callable[[Market, OptionTrade, CorePricingParams], float]
 
+def _price_spot(params: Tuple[PriceFn, Market, OptionTrade, CorePricingParams], S: float) -> float:
+    price_fn, market, trade, core = params
+    m = Market(S0=S, r=market.r, sigma=market.sigma)
+    return float(price_fn(m, trade, core))
 
-def compute_greeks_vector(
-    price_fn: PriceFn,
-    market: Market,
+def _price_vol(params: Tuple[PriceFn, Market, OptionTrade, CorePricingParams], sigma: float) -> float:
+    price_fn, market, trade, core = params
+    m = Market(S0=market.S0, r=market.r, sigma=sigma)
+    return float(price_fn(m, trade, core))
+
+def _price_rate(params: Tuple[PriceFn, Market, OptionTrade, CorePricingParams], r: float) -> float:
+    price_fn, market, trade, core = params
+    m = Market(S0=market.S0, r=r, sigma=market.sigma)
+    return float(price_fn(m, trade, core))
+
+
+# Theta: bump maturity date
+def _price_time_days(params: Tuple[PriceFn, Market, OptionTrade, CorePricingParams, int], days: float) -> float:
+    price_fn, market, trade, core, base_days = params
+    d = int(round(days))
+
+    new_trade = OptionTrade(
+        strike=trade.strike,
+        is_call=trade.is_call,
+        exercise=trade.exercise,
+        pricing_date=trade.pricing_date,
+        maturity_date=trade.maturity_date + dt.timedelta(days=(d - base_days)),
+        ex_div_date=getattr(trade, "ex_div_date", None),
+        div_amount=getattr(trade, "div_amount", 0.0),
+    )
+
+    return float(price_fn(market, new_trade, core))
+
+
+# Cross derivative helper (Vanna)
+def _cross_second(f: Callable[[float, float], float], x: float, y: float, dx: float, dy: float) -> float:
+    return (
+        f(x + dx, y + dy)
+        - f(x + dx, y - dy)
+        - f(x - dx, y + dy)
+        + f(x - dx, y - dy)
+    ) / (4.0 * dx * dy)
+
+def compute_greeks_vector(price_fn: PriceFn,market: Market,
     trade: OptionTrade,
     params: CorePricingParams,
-    eps_spot: float = 0.01,
-    eps_vol: float = 0.01,
-) -> dict[str, float]:
-
+    shift_spot: float = 0.01,
+    shift_vol: float = 0.01,
+    shift_rate: float = 1e-4,
+    shift_days: int = 1
+) -> Dict[str, float]:
     if params.method != "vector":
         raise ValueError("This function is for vector pricers only.")
 
-    # Prix de base
-    price_0 = float(price_fn(market, trade, params))
+    # Delta, Gamma
+    spot_params = (price_fn, market, trade, params)
+    dS = OneDimDerivative(function=_price_spot, other_parameters=spot_params, shift=shift_spot)
+    delta = dS.first(market.S0)
+    gamma = dS.second(market.S0)
 
-    # =========================
-    # Delta & Gamma (spot bump)
-    # =========================
-    m_up = Market(S0=market.S0 + eps_spot, r=market.r, sigma=market.sigma)
-    m_dn = Market(S0=market.S0 - eps_spot, r=market.r, sigma=market.sigma)
+    # Vega, Vomma
+    vol_params = (price_fn, market, trade, params)
+    dV = OneDimDerivative(function=_price_vol, other_parameters=vol_params, shift=shift_vol)
+    vega = dV.first(market.sigma) / 100.0
+    vomma = dV.second(market.sigma) / 10000.0
 
-    price_up = float(price_fn(m_up, trade, params))
-    price_dn = float(price_fn(m_dn, trade, params))
+    # Rho
+    rate_params = (price_fn, market, trade, params)
+    dR = OneDimDerivative(function=_price_rate, other_parameters=rate_params, shift=shift_rate)
+    rho = dR.first(market.r)
 
-    delta = (price_up - price_dn) / (2.0 * eps_spot)
-    gamma = (price_up - 2.0 * price_0 + price_dn) / (eps_spot ** 2)
+    # Vanna
+    def price_S_sigma(S: float, sigma: float) -> float:
+        m = Market(S0=S, r=market.r, sigma=sigma)
+        return float(price_fn(m, trade, params))
+    
+    vanna = _cross_second(price_S_sigma, market.S0, market.sigma, shift_spot, shift_vol) / 100.0
 
-    # =========================
-    # Vega & Vomma (vol bump)
-    # =========================
-    mv_up = Market(S0=market.S0, r=market.r, sigma=market.sigma + eps_vol)
-    mv_dn = Market(S0=market.S0, r=market.r, sigma=market.sigma - eps_vol)
-
-    price_v_up = float(price_fn(mv_up, trade, params))
-    price_v_dn = float(price_fn(mv_dn, trade, params))
-
-    vega = ((price_v_up - price_v_dn) / (2.0 * eps_vol)) / 100
-    vomma = ((price_v_up - 2.0 * price_0 + price_v_dn) / (eps_vol ** 2)) / 10000
-
-    # =========================
-    # Vanna (spot+vol croisé)
-    # =========================
-    m_up_v_up = Market(S0=market.S0 + eps_spot, r=market.r, sigma=market.sigma + eps_vol)
-    m_up_v_dn = Market(S0=market.S0 + eps_spot, r=market.r, sigma=market.sigma - eps_vol)
-    m_dn_v_up = Market(S0=market.S0 - eps_spot, r=market.r, sigma=market.sigma + eps_vol)
-    m_dn_v_dn = Market(S0=market.S0 - eps_spot, r=market.r, sigma=market.sigma - eps_vol)
-
-    p_u_u = float(price_fn(m_up_v_up, trade, params))
-    p_u_d = float(price_fn(m_up_v_dn, trade, params))
-    p_d_u = float(price_fn(m_dn_v_up, trade, params))
-    p_d_d = float(price_fn(m_dn_v_dn, trade, params))
-
-    vanna = ((p_u_u - p_u_d - p_d_u + p_d_d) / (4.0 * eps_spot * eps_vol))/100
+    # Theta
+    base_days = 0
+    time_params = (price_fn, market, trade, params, base_days)
+    dT = OneDimDerivative(function=_price_time_days, other_parameters=time_params, shift=float(shift_days))
+    dP_dDays = dT.first(0.0)
+    theta = -dP_dDays * 365.0
 
     return {
-        "price": price_0,
-        "delta": delta,
-        "gamma": gamma,
-        "vega": vega,
-        "vanna": vanna,
-        "vomma": vomma,
+        "Delta": float(delta),
+        "Gamma": float(gamma),
+        "Vega": float(vega),
+        "Theta": float(theta),
+        "Rho": float(rho),
+        "Vanna": float(vanna),
+        "Vomma": float(vomma),
     }

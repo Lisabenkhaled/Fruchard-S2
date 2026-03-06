@@ -1,89 +1,115 @@
-"""
-benchmark_scalar_vs_vector_all.py
-
-Simple one-file benchmark: Scalar vs Vector for
-  1) European naive MC
-  2) American naive MC
-  3) American Longstaff–Schwartz (LS) MC
-
-ONLY antithetic is used.
-SE is computed with standard_error_anti (and std with sample_std_anti).
-
-Expected pricer outputs (as in your code):
-- European: (price, discounted_payoffs)
-- American naive: (price, best_pv_by_path)
-- American LS: (price, discounted_cashflows)
-"""
+from __future__ import annotations
 
 import time
+from typing import Callable, List, Sequence, Tuple
+
 import numpy as np
 import matplotlib.pyplot as plt
+from numpy.typing import NDArray
 
 from model.market import Market
 from model.option import OptionTrade
 from model.mc_pricer import (
-    # European
     price_european_naive_mc_vector,
     price_european_naive_mc_scalar,
-    # American naive
     price_american_naive_mc_vector,
     price_american_naive_mc_scalar,
-    # American LS
     price_american_ls_vector,
     price_american_ls_scalar,
 )
 from utils.utils_stats import sample_std_anti, standard_error_anti
 
+# Types
+Samples = NDArray[np.float64]
+RunFn = Callable[[int], Tuple[float, Samples]]
 
-# -------------------------
+
 # Helpers
-# -------------------------
-def make_n_paths_grid(n_min=1_000, n_max=100_000, n_points=25):
-    """Log-spaced grid, forced EVEN because we always use antithetic."""
+def make_n_paths_grid(n_min: int = 1_000, n_max: int = 100_000, n_points: int = 25) -> NDArray[np.int64]:
     grid = np.unique(
         np.round(np.logspace(np.log10(n_min), np.log10(n_max), n_points)).astype(int)
     )
     grid = np.where(grid % 2 == 0, grid, grid + 1)  # force even
-    return np.unique(grid)
+    return np.unique(grid).astype(np.int64)
 
 
-def run_benchmark(title, n_paths_grid, run_vec, run_sca, plot=True):
-    """
-    run_vec(n_paths) -> (price, samples_for_stats)
-    run_sca(n_paths) -> (price, samples_for_stats)
-    """
+def _print_header(title: str) -> None:
+    """Print the benchmark table header"""
     print("\n" + "=" * 100)
     print(title)
     print("=" * 100)
-    print("Paths | Price(Vec) | Std(Vec)  | SE(Vec)   | Time(Vec) | Price(Sca) | Std(Sca)  | SE(Sca)   | Time(Sca) | Speedup")
+    print(
+        "Paths | Price(Vec) | Std(Vec)  | SE(Vec)   | Time(Vec) | "
+        "Price(Sca) | Std(Sca)  | SE(Sca)   | Time(Sca) | Speedup"
+    )
     print("-" * 100)
 
-    t_vec_list, t_sca_list = [], []
 
+def _run_one(pricer: RunFn, n_paths: int) -> Tuple[float, float, float, float]:
+    """
+    Run one pricer and return:
+      price, std, se, elapsed_time
+    """
+    t0 = time.perf_counter()
+    price, samples = pricer(int(n_paths))
+    t1 = time.perf_counter()
+
+    std = float(sample_std_anti(samples))
+    se = float(standard_error_anti(samples))
+    elapsed = float(t1 - t0)
+
+    return float(price), std, se, elapsed
+
+
+def _print_row(n_paths: int, p_vec: float, std_vec: float, se_vec: float,t_vec: float, 
+               p_sca: float, std_sca: float, se_sca: float, t_sca: float) -> None:
+    """Print one line of the benchmark table"""
+    speedup = (t_sca / t_vec) if t_vec > 0 else float("nan")
+
+    print(
+        f"{int(n_paths):>6d} | "
+        f"{p_vec:>10.6f} | {std_vec:>9.6f} | {se_vec:>9.6f} | {t_vec:>8.4f} | "
+        f"{p_sca:>10.6f} | {std_sca:>9.6f} | {se_sca:>9.6f} | {t_sca:>8.4f} | "
+        f"{speedup:>7.2f}x"
+    )
+
+
+def _plot_times(title: str, n_paths_grid: Sequence[int], t_vec: Sequence[float], t_sca: Sequence[float]) -> None:
+    """Plot execution time vs N"""
+    plt.figure(figsize=(10, 6))
+    plt.plot(n_paths_grid, t_vec, marker="o", label="Vector")
+    plt.plot(n_paths_grid, t_sca, marker="s", label="Scalar")
+    plt.xscale("log")
+    plt.title(title)
+    plt.xlabel("Number of paths (log scale)")
+    plt.ylabel("Execution time (seconds)")
+    plt.grid(alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+def run_benchmark(title: str, n_paths_grid: Sequence[int], run_vec: RunFn, run_sca: RunFn, plot: bool = True) -> None:
+    _print_header(title)
+
+    t_vec_list: List[float] = []
+    t_sca_list: List[float] = []
+
+    # Main loop over N
     for n_paths in n_paths_grid:
-        # Vector
-        t0 = time.perf_counter()
-        p_vec, x_vec = run_vec(int(n_paths))
-        t1 = time.perf_counter()
-        std_vec = float(sample_std_anti(x_vec))
-        se_vec = float(standard_error_anti(x_vec))
-        t_vec = float(t1 - t0)
+        p_vec, std_vec, se_vec, t_vec = _run_one(run_vec, int(n_paths))
+        p_sca, std_sca, se_sca, t_sca = _run_one(run_sca, int(n_paths))
 
-        # Scalar
-        t0 = time.perf_counter()
-        p_sca, x_sca = run_sca(int(n_paths))
-        t1 = time.perf_counter()
-        std_sca = float(sample_std_anti(x_sca))
-        se_sca = float(standard_error_anti(x_sca))
-        t_sca = float(t1 - t0)
-
-        speedup = t_sca / t_vec if t_vec > 0 else np.nan
-
-        print(
-            f"{int(n_paths):>6d} | "
-            f"{float(p_vec):>10.6f} | {std_vec:>9.6f} | {se_vec:>9.6f} | {t_vec:>8.4f} | "
-            f"{float(p_sca):>10.6f} | {std_sca:>9.6f} | {se_sca:>9.6f} | {t_sca:>8.4f} | "
-            f"{speedup:>7.2f}x"
+        _print_row(
+            n_paths=int(n_paths),
+            p_vec=p_vec,
+            std_vec=std_vec,
+            se_vec=se_vec,
+            t_vec=t_vec,
+            p_sca=p_sca,
+            std_sca=std_sca,
+            se_sca=se_sca,
+            t_sca=t_sca,
         )
 
         t_vec_list.append(t_vec)
@@ -92,23 +118,14 @@ def run_benchmark(title, n_paths_grid, run_vec, run_sca, plot=True):
     print("-" * 100)
 
     if plot:
-        plt.figure(figsize=(10, 6))
-        plt.plot(n_paths_grid, t_vec_list, marker="o", label="Vector")
-        plt.plot(n_paths_grid, t_sca_list, marker="s", label="Scalar")
-        plt.xscale("log")
-        plt.title(title)
-        plt.xlabel("Number of paths (log scale)")
-        plt.ylabel("Execution time (seconds)")
-        plt.grid(alpha=0.3)
-        plt.legend()
-        plt.tight_layout()
-        plt.show()
+        _plot_times(title, n_paths_grid, t_vec_list, t_sca_list)
 
 
-# -------------------------
-# Benchmarks
-# -------------------------
-def bench_european(market, trade, n_paths_grid, n_steps, seed=42, plot=True):
+# EU Options
+def bench_european(market: Market, trade: OptionTrade, n_paths_grid: Sequence[int], n_steps: int,
+    seed: int = 42, plot: bool = True) -> None:
+    """European naive MC: scalar vs vector"""
+
     if trade.exercise.lower() != "european":
         raise ValueError("European trade required")
 
@@ -122,12 +139,15 @@ def bench_european(market, trade, n_paths_grid, n_steps, seed=42, plot=True):
         plot=plot,
     )
 
+# AM Naive
+def bench_american_naive(market: Market, trade: OptionTrade, n_paths_grid: Sequence[int], n_steps: int,
+    seed: int = 42, plot: bool = True) -> None:
+    """American naive MC: scalar vs vector"""
 
-def bench_american_naive(market, trade, n_paths_grid, n_steps, seed=42, plot=True):
     if trade.exercise.lower() != "american":
         raise ValueError("American trade required")
 
-    antithetic = True  # ALWAYS
+    antithetic = True
 
     run_benchmark(
         title="AMERICAN NAIVE MC — Scalar vs Vector (Antithetic)",
@@ -137,12 +157,15 @@ def bench_american_naive(market, trade, n_paths_grid, n_steps, seed=42, plot=Tru
         plot=plot,
     )
 
+# AM LS
+def bench_american_ls(market: Market, trade: OptionTrade, n_paths_grid: Sequence[int], n_steps: int,
+    seed: int = 42, basis: str = "laguerre", degree: int = 2, plot: bool = True) -> None:
+    """American LS MC: scalar vs vector"""
 
-def bench_american_ls(market, trade, n_paths_grid, n_steps, seed=42, basis="laguerre", degree=2, plot=True):
     if trade.exercise.lower() != "american":
         raise ValueError("American trade required")
 
-    antithetic = True  # ALWAYS
+    antithetic = True
 
     run_benchmark(
         title=f"AMERICAN LS MC — Scalar vs Vector (Antithetic, {basis=}, {degree=})",
@@ -153,16 +176,14 @@ def bench_american_ls(market, trade, n_paths_grid, n_steps, seed=42, basis="lagu
     )
 
 
-# -------------------------
 # Example usage
-# -------------------------
-if __name__ == "__main__":
+def main() -> None:
     import datetime as dt
 
     n_paths_grid = make_n_paths_grid(n_min=1_000, n_max=100_000, n_points=30)
-
     market = Market(S0=100.0, r=0.05, sigma=0.20)
 
+    # EU Options
     eu_trade = OptionTrade(
         strike=100.0,
         is_call=True,
@@ -174,6 +195,7 @@ if __name__ == "__main__":
         div_amount=3.0,
     )
 
+    # AM Naive
     am_trade_naive = OptionTrade(
         strike=100.0,
         is_call=True,
@@ -185,6 +207,7 @@ if __name__ == "__main__":
         div_amount=3.0,
     )
 
+    # AM LS
     am_trade_ls = OptionTrade(
         strike=100.0,
         is_call=True,
@@ -196,6 +219,10 @@ if __name__ == "__main__":
         div_amount=0.0,
     )
 
+    # Calculation and Plot
     bench_european(market, eu_trade, n_paths_grid, n_steps=300, seed=42, plot=True)
     bench_american_naive(market, am_trade_naive, n_paths_grid, n_steps=200, seed=42, plot=True)
     bench_american_ls(market, am_trade_ls, n_paths_grid, n_steps=200, seed=42, basis="laguerre", degree=2, plot=True)
+
+if __name__ == "__main__":
+    main()

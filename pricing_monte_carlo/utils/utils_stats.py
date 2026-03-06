@@ -15,16 +15,12 @@ def sample_std(x: np.ndarray) -> float:
 def sample_std_anti(x: np.ndarray) -> float:
     x = np.asarray(x, dtype=float)
     n = len(x)
-
     if n % 2 != 0:
         raise ValueError("Antithetic requires an even number of samples.")
-
     n_pairs = n // 2
     x_plus = x[:n_pairs]
     x_minus = x[n_pairs:]
-
     pair_avg = 0.5 * (x_plus + x_minus)
-
     if n_pairs < 2:
         return float("nan")
 
@@ -36,10 +32,8 @@ def sample_std_anti(x: np.ndarray) -> float:
 def standard_error(x: np.ndarray) -> float:
     x = np.asarray(x, dtype=float)
     n = len(x)
-
     if n < 2:
         return float("nan")
-
     s = np.std(x, ddof=1)
     return float(s / np.sqrt(n))
 
@@ -66,10 +60,8 @@ def standard_error_anti(x: np.ndarray) -> float:
 def confidence_interval(x: np.ndarray,
     alpha: float = 0.05
 ) -> Tuple[float, float]:
-
     mean = sample_mean(x)
     se = standard_error(x)
-
     from scipy.stats import norm
     z = norm.ppf(1 - alpha / 2)
 

@@ -6,10 +6,6 @@ import numpy as np
 from .utils.utils_grecs import OneDimDerivative
 from .pricer import price_tree_backward_direct
 
-
-# -------------------------------------------------------
-# 1️⃣ Price getter (Backward only)
-# -------------------------------------------------------
 def _get_price(market, option, N, exercise, optimize, threshold):
     """
     Pure tree backward pricing call.
@@ -33,20 +29,12 @@ def _get_price(market, option, N, exercise, optimize, threshold):
     )
     return float(out["tree_price"])
 
-
-# -------------------------------------------------------
-# 2️⃣ Generic wrapper for 1D derivatives
-# -------------------------------------------------------
 def _greek_wrapper(params, x: float) -> float:
     market, option, N, exercise, optimize, threshold, target = params
     m = copy.deepcopy(market)
     setattr(m, target, x)
     return _get_price(m, option, N, exercise, optimize, threshold)
 
-
-# -------------------------------------------------------
-# 3️⃣ Cross derivatives (Vanna, Vomma)
-# -------------------------------------------------------
 def _finite_diff_2d(market, option, N, exercise, optimize, threshold, base_price):
 
     S0, sigma0 = market.S0, market.sigma
@@ -73,12 +61,8 @@ def _finite_diff_2d(market, option, N, exercise, optimize, threshold, base_price
     if not np.isfinite(vanna): vanna = 0.0
     if not np.isfinite(vomma): vomma = 0.0
 
-    return float(vanna), float(vomma)
+    return float(vanna) / 100.0, float(vomma) / 10000.0
 
-
-# -------------------------------------------------------
-# 4️⃣ Public reusable greeks engine
-# -------------------------------------------------------
 def compute_tree_greeks_engine(
     market,
     option,
@@ -87,13 +71,6 @@ def compute_tree_greeks_engine(
     optimize=False,
     threshold=1e-14,
 ):
-    """
-    Pure Tree Greeks engine.
-    No Excel.
-    No input_parameters.
-    Fully reusable.
-    """
-
     base_price = _get_price(market, option, N, exercise, optimize, threshold)
 
     hS = max(1e-5, 0.005 * market.S0)
@@ -112,7 +89,7 @@ def compute_tree_greeks_engine(
 
     Delta = dS.first(market.S0)
     Gamma = dS.second(market.S0)
-    Vega  = dSigma.first(market.sigma)
+    Vega  = dSigma.first(market.sigma) / 100.0
     Rho   = dR.first(market.r)
     Theta = -dT.first(market.T)
 
@@ -121,7 +98,6 @@ def compute_tree_greeks_engine(
     )
 
     return {
-        "Price": base_price,
         "Delta": Delta,
         "Gamma": Gamma,
         "Vega": Vega,
