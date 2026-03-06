@@ -99,43 +99,42 @@ def print_comparison(mc: Dict[str, float], ref: Dict[str, float]) -> None:
             print(f"{k:>6s} | MC: {v:.6f} | Bench: {ref[k]:.6f} | Diff: {diff:.6f}")
 
 
-# ----------------
 # Example usage
-# ----------------
-# dates
-pricing_date: dt.date = dt.date(2026, 3, 1)  # pricing date
-maturity_date: dt.date = dt.date(2026, 12, 25)  # maturity
+if __name__ == "__main__":
+    # dates
+    pricing_date: dt.date = dt.date(2026, 3, 1)  # pricing date
+    maturity_date: dt.date = dt.date(2026, 12, 25)  # maturity
 
-# market
-market: Market = Market(S0=100, r=0.05, sigma=0.2)  # inputs
+    # market
+    market: Market = Market(S0=100, r=0.05, sigma=0.2)  # inputs
 
-# trade
-trade: OptionTrade = OptionTrade(
-    strike=100,  # strike
-    is_call=True,  # call/put
-    exercise="european",  # european/american
-    pricing_date=pricing_date,  # pricing date
-    maturity_date=maturity_date,  # maturity
-    ex_div_date=None,  # dividend date
-    div_amount=0.0,  # dividend amount
-)
+    # trade
+    trade: OptionTrade = OptionTrade(
+        strike=100,  # strike
+        is_call=True,  # call/put
+        exercise="european",  # european/american
+        pricing_date=pricing_date,  # pricing date
+        maturity_date=maturity_date,  # maturity
+        ex_div_date=None,  # dividend date
+        div_amount=0.0,  # dividend amount
+    )
 
-# MC params
-params: CorePricingParams = CorePricingParams(
-    n_paths=100_000,  # paths
-    n_steps=300,  # steps
-    seed=2,  # seed
-    antithetic=True,  # antithetic
-    method="vector",  # vector only
-    american_algo="ls",  # for AM
-    basis="laguerre",  # basis
-    degree=2,  # degree
-)
+    # MC params
+    params: CorePricingParams = CorePricingParams(
+        n_paths=100_000,  # paths
+        n_steps=300,  # steps
+        seed=2,  # seed
+        antithetic=True,  # antithetic
+        method="vector",  # vector only
+        american_algo="ls",  # for AM
+        basis="laguerre",  # basis
+        degree=2,  # degree
+    )
 
-# run
-mc, ref = core_greeks(market, trade, params)  # compute
+    # run
+    mc, ref = core_greeks(market, trade, params)  # compute
 
-# print
-print_greeks("Monte Carlo Greeks", mc)  # mc
-print_greeks("\nBenchmark Greeks", ref)  # bench
-print_comparison(mc, ref)  # compare
+    # print
+    print_greeks("Monte Carlo Greeks", mc)  # mc
+    print_greeks("\nBenchmark Greeks", ref)  # bench
+    print_comparison(mc, ref)  # compare

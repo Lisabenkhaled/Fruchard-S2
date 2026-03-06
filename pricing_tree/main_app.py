@@ -248,7 +248,7 @@ with tab_prix:
     n_points = st.number_input("Nombre de points étudiés", min_value=5, max_value=100, value=15, step=1)
 
     st.markdown("---")
-    run_sensitivity = st.button("▶️ Lancer l’analyse de sensibilité", use_container_width=True)
+    run_sensitivity = st.button("▶️ Lancer l’analyse de sensibilité", width='stretch')
     
     if run_sensitivity:
         variable_range = np.linspace(min_val, max_val, int(n_points))

@@ -1,173 +1,107 @@
 import datetime as dt
-import sys
-from itertools import product
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import streamlit as st
+import math
+import sys
 
 # Ensure repository root is importable when app is launched from subfolders
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
-    sys.path.append(str(REPO_ROOT))
+    sys.path.insert(0, str(REPO_ROOT))
 
-from core_pricer import CorePricingParams, core_price
-from model.market import Market
-from model.option import OptionTrade
-from pricing_tree.pricer import price_tree_backward_direct
+from pricing_monte_carlo.core_pricer import CorePricingParams, core_price
+from pricing_monte_carlo.core_greeks import core_greeks
+from pricing_monte_carlo.model.market import Market
+from pricing_monte_carlo.model.option import OptionTrade
+from pricing_monte_carlo.model.path_simulator import (
+    simulate_gbm_paths_scalar,
+    simulate_gbm_paths_vector,
+)
+from pricing_monte_carlo.utils.utils_bs import bs_price
+from pricing_tree.adaptateur import tree_price_from_mc
 
-
-def bermudan_exercise_steps(pricing_date: dt.date, maturity_date: dt.date, n_steps: int) -> list[int]:
-    """Build monthly exercise grid (day 26) plus maturity."""
-    dates: list[dt.date] = []
-    cur = pricing_date
-
-    while cur <= maturity_date:
-        d = dt.date(cur.year, cur.month, 26)
-        if pricing_date <= d <= maturity_date:
-            dates.append(d)
-
-        if cur.month == 12:
-            cur = dt.date(cur.year + 1, 1, 1)
-        else:
-            cur = dt.date(cur.year, cur.month + 1, 1)
-
-    if maturity_date not in dates:
-        dates.append(maturity_date)
-
-    total_days = max((maturity_date - pricing_date).days, 1)
-    steps = []
-    for d in dates:
-        tau = (d - pricing_date).days / total_days
-        idx = int(round(tau * n_steps))
-        steps.append(min(max(idx, 0), n_steps))
-
-    return sorted(set(steps))
+def normalize_n_paths(n_paths: int, antithetic: bool) -> int:
+    n = max(int(n_paths), 1)
+    if antithetic and n % 2 == 1:
+        return n + 1
+    return n  
 
 
 def build_trade(
-    option_kind: str,
+    exercise: str,
     strike: float,
+    is_call: bool,
     pricing_date: dt.date,
     maturity_date: dt.date,
-    is_call: bool,
     q: float,
     ex_div_date: dt.date | None,
     div_amount: float,
 ) -> OptionTrade:
     return OptionTrade(
         strike=float(strike),
-        is_call=is_call,
-        exercise=option_kind,
+        is_call=bool(is_call),
+        exercise=exercise,
         pricing_date=pricing_date,
         maturity_date=maturity_date,
-        q=q,
+        q=float(q),
         ex_div_date=ex_div_date,
-        div_amount=div_amount,
+        div_amount=float(div_amount),
     )
 
 
-def normalize_n_paths(n_paths: int, antithetic: bool) -> int:
-    n = max(int(n_paths), 1)
-    if antithetic and n % 2 == 1:
-        return n + 1
-    return n
-
-
-def run_batch_pricing(
-    market: Market,
-    trade: OptionTrade,
+def build_params(
     n_paths: int,
     n_steps: int,
     seed: int,
-    methods: list[str],
-    antithetics: list[bool],
-    american_algo: str,
-    basis: str,
-    degree: int,
-    bermudan_steps: list[int],
-    digital_strike: float | None,
-    digital_payout: float,
-) -> pd.DataFrame:
-    rows = []
-
-    for method, antithetic in product(methods, antithetics):
-        n_paths_used = normalize_n_paths(n_paths, antithetic)
-        params = CorePricingParams(
-            n_paths=n_paths_used,
-            n_steps=n_steps,
-            seed=seed,
-            antithetic=antithetic,
-            method=method,
-            american_algo=american_algo,
-            basis=basis,
-            degree=degree,
-            exercise_steps=bermudan_steps,
-            digital_strike=digital_strike,
-            digital_payout=digital_payout,
-        )
-
-        price, std, se, elapsed = core_price(market, trade, params)
-
-        rows.append(
-            {
-                "engine": "monte_carlo",
-                "method": method,
-                "antithetic": antithetic,
-                "n_paths_used": n_paths_used,
-                "price": price,
-                "std": std,
-                "se": se,
-                "ci_low_95": price - 1.96 * se,
-                "ci_high_95": price + 1.96 * se,
-                "time_s": elapsed,
-            }
-        )
-
-    df = pd.DataFrame(rows).sort_values(["method", "antithetic"]).reset_index(drop=True)
-    baseline_idx = df["time_s"].idxmin()
-    baseline = df.loc[baseline_idx]
-    df["diff_price_vs_fastest"] = df["price"] - baseline["price"]
-    df["time_ratio_vs_fastest"] = df["time_s"] / baseline["time_s"]
-    return df
-
-
-def run_single_mc(
-    market: Market,
-    trade: OptionTrade,
-    n_paths: int,
-    n_steps: int,
-    seed: int,
-    method: str,
     antithetic: bool,
-    american_algo: str,
-    basis: str,
-    degree: int,
-    bermudan_steps: list[int],
-    digital_strike: float | None,
-    digital_payout: float,
-) -> dict:
-    n_paths_used = normalize_n_paths(n_paths, antithetic)
-    params = CorePricingParams(
-        n_paths=n_paths_used,
-        n_steps=n_steps,
-        seed=seed,
-        antithetic=antithetic,
-        method=method,
+    method: str | None = None,
+    american_algo: str = "ls",
+    basis: str = "laguerre",
+    degree: int = 2,
+    pricing_method: str | None = None,
+    **_: object,
+) -> CorePricingParams:
+    picked_method = pricing_method or method or "vector"
+    return CorePricingParams(
+        n_paths=normalize_n_paths(int(n_paths), bool(antithetic)),
+        n_steps=int(n_steps),
+        seed=int(seed),
+        antithetic=bool(antithetic),
+        method=picked_method,
         american_algo=american_algo,
         basis=basis,
-        degree=degree,
-        exercise_steps=bermudan_steps,
-        digital_strike=digital_strike,
-        digital_payout=digital_payout,
+        degree=int(degree),
+        payoff="vanilla",
     )
-    price, std, se, elapsed = core_price(market, trade, params)
+
+
+def benchmark_price(market: Market, trade: OptionTrade) -> tuple[float, str]:
+    no_discrete_div = (trade.ex_div_date is None) or (float(trade.div_amount) == 0.0)
+    if trade.exercise.lower() == "european" and no_discrete_div and float(trade.q) == 0.0:
+        return float(
+            bs_price(
+                S=float(market.S0),
+                K=float(trade.strike),
+                r=float(market.r),
+                sigma=float(market.sigma),
+                T=float(trade.T),
+                is_call=bool(trade.is_call),
+            )
+        ), "Black-Scholes"
+
+    out = tree_price_from_mc(mc_market=market, mc_trade=trade, N=500, optimize=False, threshold=0.0, return_tree=False)
+    return float(out["tree_price"]), "Tree"
+
+
+def one_run(market: Market, trade: OptionTrade, p: CorePricingParams) -> dict:
+    price, std, se, elapsed = core_price(market, trade, p)
     return {
-        "engine": "monte_carlo",
-        "method": method,
-        "antithetic": antithetic,
-        "n_paths_used": n_paths_used,
+        "method": p.method,
+        "antithetic": p.antithetic,
+        "n_paths": p.n_paths,
         "price": price,
         "std": std,
         "se": se,
@@ -177,564 +111,392 @@ def run_single_mc(
     }
 
 
-def run_tree_single(
-    *,
-    s0: float,
-    r: float,
-    sigma: float,
-    strike: float,
-    is_call: bool,
-    exercise: str,
-    pricing_date: dt.date,
-    maturity_date: dt.date,
-    tree_steps: int,
-    ex_div_date: dt.date | None,
-    div_amount: float,
-    optimize: bool,
-    threshold: float,
-) -> dict:
-    out = price_tree_backward_direct(
-        S0=float(s0),
-        r=float(r),
-        sigma=float(sigma),
-        K=float(strike),
-        is_call=bool(is_call),
-        exercise=exercise,
-        pricing_date=pricing_date,
-        maturity_date=maturity_date,
-        N=int(tree_steps),
-        ex_div_date=ex_div_date,
-        div_amount=float(div_amount),
-        optimize=bool(optimize),
-        threshold=float(threshold),
-        return_tree=False,
-    )
-    return {
-        "engine": "pricing_tree",
-        "method": "backward",
-        "antithetic": False,
-        "price": out["tree_price"],
-        "std": np.nan,
-        "se": np.nan,
-        "ci_low_95": np.nan,
-        "ci_high_95": np.nan,
-        "time_s": out["tree_time"],
-    }
+def discounted_option_profile(market: Market, trade: OptionTrade, p: CorePricingParams) -> pd.DataFrame:
+    if p.method == "vector":
+        times, paths = simulate_gbm_paths_vector(market, trade, p.n_paths, p.n_steps, seed=p.seed, antithetic=p.antithetic)
+    else:
+        times, paths = simulate_gbm_paths_scalar(market, trade, p.n_paths, p.n_steps, seed=p.seed, antithetic=p.antithetic)
 
-
-def regression_line(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
-    if len(x) < 2:
-        return np.nan, np.nan
-    slope, intercept = np.polyfit(x, y, 1)
-    return float(slope), float(intercept)
-
-
-def run_mc_convergence_regression(
-    market: Market,
-    trade: OptionTrade,
-    n_steps: int,
-    seed: int,
-    antithetic: bool,
-    method: str,
-    american_algo: str,
-    basis: str,
-    degree: int,
-    exercise_steps: list[int],
-    digital_strike: float | None,
-    digital_payout: float,
-    n_paths_grid: list[int],
-) -> tuple[pd.DataFrame, float]:
-    rows = []
-    for n_paths in n_paths_grid:
-        n_paths_used = normalize_n_paths(int(n_paths), bool(antithetic))
-        params = CorePricingParams(
-            n_paths=n_paths_used,
-            n_steps=int(n_steps),
-            seed=int(seed),
-            antithetic=bool(antithetic),
-            method=method,
-            american_algo=american_algo,
-            basis=basis,
-            degree=degree,
-            exercise_steps=exercise_steps,
-            digital_strike=digital_strike,
-            digital_payout=float(digital_payout),
-        )
-        price, std, se, elapsed = core_price(market, trade, params)
-        rows.append({"n_paths": n_paths, "n_paths_used": n_paths_used, "price": price, "std": std, "se": se, "time_s": elapsed})
-
-    df = pd.DataFrame(rows).sort_values("n_paths").reset_index(drop=True)
-    slope, _ = regression_line(np.log(df["n_paths"].to_numpy()), np.log(df["se"].to_numpy()))
-    return df, slope
-
-
-def run_stress_regression(
-    var_name: str,
-    var_values: np.ndarray,
-    base_inputs: dict,
-    mc_enabled: bool,
-    tree_enabled: bool,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    price_rows = []
-
-    for val in var_values:
-        local = base_inputs.copy()
-        local[var_name] = float(val)
-
-        market = Market(S0=local["s0"], r=local["r"], sigma=local["sigma"])
-        trade = build_trade(
-            option_kind=local["option_kind"],
-            strike=local["strike"],
-            pricing_date=local["pricing_date"],
-            maturity_date=local["maturity_date"],
-            is_call=local["is_call"],
-            q=local["q"],
-            ex_div_date=local["ex_div_date"] if local["has_discrete_div"] else None,
-            div_amount=local["div_amount"] if local["has_discrete_div"] else 0.0,
-        )
-
-        if mc_enabled:
-            n_paths_used = normalize_n_paths(local["n_paths"], local["reg_antithetic"])
-            mc_params = CorePricingParams(
-                n_paths=n_paths_used,
-                n_steps=local["n_steps"],
-                seed=local["seed"],
-                antithetic=local["reg_antithetic"],
-                method=local["reg_method"],
-                american_algo=local["american_algo"],
-                basis=local["basis"],
-                degree=local["degree"],
-                exercise_steps=local["bermudan_steps"],
-                digital_strike=local["digital_strike_in"],
-                digital_payout=local["digital_payout"],
-            )
-            mc_price, _, _, _ = core_price(market, trade, mc_params)
-            price_rows.append({"x": val, "engine": "monte_carlo", "price": mc_price})
-
-        if tree_enabled and local["option_kind"] in ("american", "european"):
-            tree_row = run_tree_single(
-                s0=local["s0"],
-                r=local["r"],
-                sigma=local["sigma"],
-                strike=local["strike"],
-                is_call=local["is_call"],
-                exercise=local["option_kind"],
-                pricing_date=local["pricing_date"],
-                maturity_date=local["maturity_date"],
-                tree_steps=local["tree_steps"],
-                ex_div_date=local["ex_div_date"] if local["has_discrete_div"] else None,
-                div_amount=local["div_amount"] if local["has_discrete_div"] else 0.0,
-                optimize=local["tree_optimize"],
-                threshold=local["tree_threshold"],
-            )
-            price_rows.append({"x": val, "engine": "pricing_tree", "price": tree_row["price"]})
-
-    prices_df = pd.DataFrame(price_rows)
-
-    reg_rows = []
-    for engine, sub in prices_df.groupby("engine"):
-        slope, intercept = regression_line(sub["x"].to_numpy(), sub["price"].to_numpy())
-        reg_rows.append({"engine": engine, "slope": slope, "intercept": intercept})
-
-    reg_df = pd.DataFrame(reg_rows)
-    return prices_df, reg_df
-
-def run_mc_greeks(
-    market: Market,
-    trade: OptionTrade,
-    n_paths: int,
-    n_steps: int,
-    seed: int,
-    method: str,
-    antithetic: bool,
-    american_algo: str,
-    basis: str,
-    degree: int,
-    bermudan_steps: list[int],
-    digital_strike: float | None,
-    digital_payout: float,
-    eps_spot: float,
-    eps_vol: float,
-    eps_rate: float,
-    eps_time_days: int,
-) -> pd.DataFrame:
-    n_paths_used = normalize_n_paths(n_paths, antithetic)
-    params = CorePricingParams(
-        n_paths=n_paths_used,
-        n_steps=n_steps,
-        seed=seed,
-        antithetic=antithetic,
-        method=method,
-        american_algo=american_algo,
-        basis=basis,
-        degree=degree,
-        exercise_steps=bermudan_steps,
-        digital_strike=digital_strike,
-        digital_payout=digital_payout,
-    )
-
-    base_price, _, _, _ = core_price(market, trade, params)
-
-    market_spot_up = Market(S0=market.S0 + eps_spot, r=market.r, sigma=market.sigma)
-    market_spot_down = Market(S0=max(market.S0 - eps_spot, 1e-8), r=market.r, sigma=market.sigma)
-    spot_up_price, _, _, _ = core_price(market_spot_up, trade, params)
-    spot_down_price, _, _, _ = core_price(market_spot_down, trade, params)
-    delta = (spot_up_price - spot_down_price) / (2.0 * eps_spot)
-    gamma = (spot_up_price - 2.0 * base_price + spot_down_price) / (eps_spot ** 2)
-
-    sigma_down = max(market.sigma - eps_vol, 1e-8)
-    market_vol_up = Market(S0=market.S0, r=market.r, sigma=market.sigma + eps_vol)
-    market_vol_down = Market(S0=market.S0, r=market.r, sigma=sigma_down)
-    vol_up_price, _, _, _ = core_price(market_vol_up, trade, params)
-    vol_down_price, _, _, _ = core_price(market_vol_down, trade, params)
-    vega = (vol_up_price - vol_down_price) / (2.0 * eps_vol)
-
-    market_rate_up = Market(S0=market.S0, r=market.r + eps_rate, sigma=market.sigma)
-    market_rate_down = Market(S0=market.S0, r=market.r - eps_rate, sigma=market.sigma)
-    rate_up_price, _, _, _ = core_price(market_rate_up, trade, params)
-    rate_down_price, _, _, _ = core_price(market_rate_down, trade, params)
-    rho = (rate_up_price - rate_down_price) / (2.0 * eps_rate)
-
-    max_decay_days = (trade.maturity_date - trade.pricing_date).days - 1
-    effective_decay_days = min(max(eps_time_days, 1), max(max_decay_days, 1))
-    theta = np.nan
-    if max_decay_days >= 1:
-        shorter_trade = OptionTrade(
-            strike=trade.strike,
-            is_call=trade.is_call,
-            exercise=trade.exercise,
-            pricing_date=trade.pricing_date,
-            maturity_date=trade.maturity_date - dt.timedelta(days=effective_decay_days),
-            q=trade.q,
-            ex_div_date=trade.ex_div_date,
-            div_amount=trade.div_amount,
-        )
-        shorter_price, _, _, _ = core_price(market, shorter_trade, params)
-        theta = (shorter_price - base_price) / (effective_decay_days / 365.0)
+    intrinsic = trade.payoff_vector(paths)
+    discounts = np.exp(-float(market.r) * np.asarray(times, dtype=float))
+    discounted = intrinsic * discounts[None, :]
 
     return pd.DataFrame(
-        [
-            {"greek": "price", "value": base_price},
-            {"greek": "delta", "value": delta},
-            {"greek": "gamma", "value": gamma},
-            {"greek": "vega", "value": vega},
-            {"greek": "rho", "value": rho},
-            {"greek": "theta", "value": theta},
-        ]
+        {
+            "step": np.arange(len(times)),
+            "time_years": np.asarray(times, dtype=float),
+            "mean_discounted_option_value": discounted.mean(axis=0),
+            "std_discounted_option_value": discounted.std(axis=0, ddof=1),
+        }
     )
 
-st.set_page_config(page_title="Unified Pricing Dashboard (MC + Tree)", layout="wide")
-st.title("📈 Unified Pricing Dashboard: Monte Carlo + Pricing Tree")
-st.caption("Choisis les onglets à exécuter : tu peux lancer seulement prix+écart-type, ou ajouter les comparatifs.")
+
+def convergence_grid(min_n: int, max_n: int, n_points: int) -> list[int]:
+    min_safe = max(int(min_n), 100)
+    max_safe = max(int(max_n), min_safe + 1)
+    pts = max(int(n_points), 2)
+    grid = np.unique(np.round(np.logspace(np.log10(min_safe), np.log10(max_safe), pts)).astype(int))
+    return list(map(int, grid))
+
+
+def convergence_multi_tests(
+    market: Market,
+    trade: OptionTrade,
+    test_cfg: dict[str, dict[str, int | bool | str]],
+    basis: str,
+    degree: int,
+) -> pd.DataFrame:
+    rows = []
+    ref, ref_name = benchmark_price(market, trade)
+
+    tests = [
+        ("EU naive", "european", "naive"),
+        ("AM naive", "american", "naive"),
+        ("AM LS", "american", "ls"),
+    ]
+
+    for label, ex_style, algo in tests:
+        cfg = test_cfg.get(label, {})
+        grid = convergence_grid(
+            int(cfg.get("min_paths", 1000)),
+            int(cfg.get("max_paths", 30000)),
+            int(cfg.get("n_points", 6)),
+        )
+        trade_local = OptionTrade(
+            strike=float(trade.strike),
+            is_call=bool(trade.is_call),
+            exercise=ex_style,
+            pricing_date=trade.pricing_date,
+            maturity_date=trade.maturity_date,
+            q=float(trade.q),
+            ex_div_date=trade.ex_div_date,
+            div_amount=float(trade.div_amount),
+        )
+
+        for n in grid:
+            p_local = build_params(
+                n_paths=int(n),
+                n_steps=int(cfg.get("n_steps", 120)),
+                seed=int(cfg.get("seed", 127)),
+                antithetic=bool(cfg.get("antithetic", True)),
+                method=str(cfg.get("method", "vector")),
+                american_algo=algo,
+                basis=basis,
+                degree=int(degree),
+            )
+            out = one_run(market, trade_local, p_local)
+            rows.append({
+                "test": label,
+                "benchmark": ref_name,
+                "n_paths": int(n),
+                "price": out["price"],
+                "se": out["se"],
+                "error_vs_ref": abs(out["price"] - ref),
+                "time_s": out["time_s"],
+            })
+
+    return pd.DataFrame(rows)
+
+
+st.set_page_config(page_title="Dashboard Pricing MC", layout="wide")
+st.title("Dashboard Monte Carlo — Pricing, Greeks, Convergence")
+st.caption("Interface de calcul et de comparaisons")
 
 with st.sidebar:
-    st.header("Paramètres de marché")
+    st.header("Marché")
     s0 = st.number_input("Spot S0", min_value=0.01, value=100.0, step=1.0)
     r = st.number_input("Taux r", value=0.04, step=0.005, format="%.4f")
     sigma = st.number_input("Volatilité sigma", min_value=0.0001, value=0.25, step=0.01, format="%.4f")
 
-    st.header("Paramètres option")
-    option_kind = st.selectbox("Style d'exercice", options=["european", "american", "bermudan", "digital_american"], index=1)
-    is_call = st.toggle("Call (désactivé = Put)", value=False)
+    st.header("Option")
+    exercise = st.selectbox("Exercice", options=["european", "american"], index=1)
+    is_call = st.toggle("Call (sinon Put)", value=False)
     strike = st.number_input("Strike K", min_value=0.01, value=100.0, step=1.0)
     pricing_date = st.date_input("Date de pricing", value=dt.date(2026, 2, 26))
     maturity_date = st.date_input("Maturité", value=dt.date(2027, 4, 26))
-
     q = st.number_input("Dividende continu q", value=0.0, step=0.005, format="%.4f")
-    has_discrete_div = st.toggle("Dividende discret", value=True)
-    ex_div_date = st.date_input("Ex-div date", value=dt.date(2026, 6, 21), disabled=not has_discrete_div)
-    div_amount = st.number_input("Montant dividende", min_value=0.0, value=3.0, step=0.5, disabled=not has_discrete_div)
-
+    has_div = st.toggle("Dividende discret", value=True)
+    ex_div_date = st.date_input("Ex-div date", value=dt.date(2026, 6, 21), disabled=not has_div)
+    div_amount = st.number_input("Montant dividende", min_value=0.0, value=3.0, step=0.5, disabled=not has_div)
+    
     st.header("Réglages MC")
     n_paths = st.number_input("Nombre de chemins", min_value=100, value=30000, step=1000)
-    n_steps = st.number_input("Nombre de pas MC", min_value=5, value=120, step=5)
+    n_steps = st.number_input("Nombre de pas", min_value=5, value=120, step=5)
     seed = st.number_input("Seed", min_value=0, value=127, step=1)
+    
+    method = st.selectbox("Méthode", options=["vector", "scalar"], index=0)
+    antithetic = st.toggle("Antithetic", value=True)
+    american_algo = st.selectbox("Algo américain", options=["ls", "naive"], index=0)
+    basis = st.selectbox("Base LS", options=["laguerre", "power"], index=0)
+    degree = st.slider("Degré LS", min_value=1, max_value=6, value=2)
 
-    st.subheader("Run principal (Prix+Écart-type)")
-    simple_method = st.selectbox("Méthode simple", options=["vector", "scalar"], index=0)
-    simple_antithetic = st.toggle("Antithetic (simple)", value=False)
+    st.subheader("Greeks (epsilons)")
+    greek_shift_spot = st.number_input("Epsilon Spot (ΔS)", min_value=0.0001, value=0.1, step=0.1, format="%.4f")
+    greek_shift_vol = st.number_input("Epsilon Vol (Δσ)", min_value=0.0001, value=0.01, step=0.005, format="%.4f")
+    greek_tree_n = st.number_input("Tree N (benchmark greeks)", min_value=50, value=400, step=50)
 
-    st.subheader("Comparatif MC (optionnel)")
-    methods = st.multiselect("Modes MC à comparer", options=["vector", "scalar"], default=["vector"])
-    antithetic_labels = st.multiselect("Antithetic à comparer", options=["off", "on"], default=["off"])
-    antithetics = [label == "on" for label in antithetic_labels]
+    st.subheader("Convergence (paramètres globaux)")
+    conv_min_paths = st.number_input("Convergence min paths", min_value=100, value=1000, step=100)
+    conv_max_paths = st.number_input("Convergence max paths", min_value=500, value=30000, step=500)
+    conv_n_points = st.slider("Convergence nombre de points", min_value=3, max_value=12, value=6)
+    conv_n_steps = st.number_input("Convergence pas MC", min_value=5, value=int(n_steps), step=5)
+    conv_seed = st.number_input("Convergence seed", min_value=0, value=int(seed), step=1)
+    conv_method = st.selectbox("Convergence méthode", options=["vector", "scalar"], index=0)
+    conv_antithetic = st.toggle("Convergence antithetic", value=True)
 
-    american_algo = st.selectbox("Algo américain (vanilla)", options=["ls", "naive"], index=0)
-    basis = st.selectbox("Base régression (LS)", options=["laguerre", "power"], index=0)
-    degree = st.slider("Degré régression LS", min_value=1, max_value=6, value=2)
+    st.subheader("Convergence Orix (paramètres par test)")
+    st.caption("Tu peux fixer des paramètres différents pour EU naive, AM naive et AM LS.")
+    eu_min_paths = st.number_input("EU naive min paths", min_value=100, value=1000, step=100)
+    eu_max_paths = st.number_input("EU naive max paths", min_value=500, value=20000, step=500)
+    eu_points = st.slider("EU naive points", min_value=3, max_value=12, value=6)
+    eu_steps = st.number_input("EU naive pas MC", min_value=5, value=int(n_steps), step=5)
+    eu_seed = st.number_input("EU naive seed", min_value=0, value=int(seed), step=1)
+    eu_method = st.selectbox("EU naive méthode", options=["vector", "scalar"], index=0)
+    eu_anti = st.toggle("EU naive antithetic", value=True)
 
-    st.header("Exotiques MC")
-    digital_strike = st.number_input("Digital strike", min_value=0.01, value=99.0, step=1.0)
-    digital_payout = st.number_input("Digital payout", min_value=0.01, value=1.0, step=0.1)
+    amn_min_paths = st.number_input("AM naive min paths", min_value=100, value=1000, step=100)
+    amn_max_paths = st.number_input("AM naive max paths", min_value=500, value=20000, step=500)
+    amn_points = st.slider("AM naive points", min_value=3, max_value=12, value=6)
+    amn_steps = st.number_input("AM naive pas MC", min_value=5, value=int(n_steps), step=5)
+    amn_seed = st.number_input("AM naive seed", min_value=0, value=int(seed), step=1)
+    amn_method = st.selectbox("AM naive méthode", options=["vector", "scalar"], index=0)
+    amn_anti = st.toggle("AM naive antithetic", value=True)
 
-    st.header("Pricing Tree")
-    tree_steps = st.number_input("Pas arbre N", min_value=10, value=400, step=10)
-    tree_optimize = st.toggle("Pruning arbre", value=False)
-    tree_threshold = st.number_input("Seuil pruning", min_value=1e-20, value=1e-14, format="%.1e")
+    amls_min_paths = st.number_input("AM LS min paths", min_value=100, value=1000, step=100)
+    amls_max_paths = st.number_input("AM LS max paths", min_value=500, value=20000, step=500)
+    amls_points = st.slider("AM LS points", min_value=3, max_value=12, value=6)
+    amls_steps = st.number_input("AM LS pas MC", min_value=5, value=int(n_steps), step=5)
+    amls_seed = st.number_input("AM LS seed", min_value=0, value=int(seed), step=1)
+    amls_method = st.selectbox("AM LS méthode", options=["vector", "scalar"], index=0)
+    amls_anti = st.toggle("AM LS antithetic", value=True)
 
-    st.subheader("Convergence MC (optionnel)")
-    conv_method = st.selectbox("Méthode convergence", options=["vector", "scalar"], index=0)
-    conv_antithetic = st.toggle("Antithetic convergence", value=False)
-    st.subheader("Greeks (différences finies)")
-    eps_spot = st.number_input("Epsilon spot (ΔS)", min_value=0.0001, value=0.5, step=0.1, format="%.4f")
-    eps_vol = st.number_input("Epsilon vol (Δσ)", min_value=0.0001, value=0.01, step=0.005, format="%.4f")
-    eps_rate = st.number_input("Epsilon taux (Δr)", min_value=0.0001, value=0.001, step=0.0005, format="%.4f")
-    eps_time_days = st.slider("Epsilon temps (jours)", min_value=1, max_value=30, value=1)
-    st.header("Onglets à exécuter")
+    st.header("Analyses à lancer")
     selected_panels = st.multiselect(
-        "Sélectionne ce que tu veux lancer",
+        "Tu peux lancer seulement ce qui t'intéresse",
         options=[
-            "Prix + Ecart-type",
-            "Comparatif performances MC",
-            "Comparatif MC vs Tree",
-            "Convergence MC",
-            "Greeks (MC)",
-            "Régression de sensibilité",
+            "Prix principal",
+            "Greeks (via core_greeks)",
+            "Convergence Prix / SE / Erreur",
+            "Convergence Delta",
+            "Convergence Orix (EU naive / AM naive / AM LS)",
+            "Convergence SE / Error (3 tests)",
+            "Comparaisons performance",
+            "Effet degré régression LS",
+            "Valeur moyenne actualisée par date",
         ],
-        default=["Prix + Ecart-type"],
+        default=["Prix principal"],
     )
-
-    mc_runs = len(methods) * len(antithetics)
-    workload_mc = int(n_paths) * int(n_steps) * max(mc_runs, 1)
-    st.caption(f"Charge estimée (comparatif MC): {workload_mc:,} unités")
-
     run_btn = st.button("Lancer", type="primary")
+if maturity_date <= pricing_date:
+    st.error("La maturité doit être > date de pricing.")
+    st.stop()
+
+market = Market(S0=float(s0), r=float(r), sigma=float(sigma))
+trade = build_trade(
+    exercise=exercise,
+    strike=float(strike),
+    is_call=bool(is_call),
+    pricing_date=pricing_date,
+    maturity_date=maturity_date,
+    q=float(q),
+    ex_div_date=ex_div_date if has_div else None,
+    div_amount=float(div_amount) if has_div else 0.0,
+)
+params = build_params(
+    n_paths=int(n_paths),
+    n_steps=int(n_steps),
+    seed=int(seed),
+    antithetic=bool(antithetic),
+    method=method,
+    american_algo=american_algo,
+    basis=basis,
+    degree=int(degree),
+)
+
+orix_test_cfg = {
+    "EU naive": {
+        "min_paths": int(eu_min_paths),
+        "max_paths": int(eu_max_paths),
+        "n_points": int(eu_points),
+        "n_steps": int(eu_steps),
+        "seed": int(eu_seed),
+        "method": eu_method,
+        "antithetic": bool(eu_anti),
+    },
+    "AM naive": {
+        "min_paths": int(amn_min_paths),
+        "max_paths": int(amn_max_paths),
+        "n_points": int(amn_points),
+        "n_steps": int(amn_steps),
+        "seed": int(amn_seed),
+        "method": amn_method,
+        "antithetic": bool(amn_anti),
+    },
+    "AM LS": {
+        "min_paths": int(amls_min_paths),
+        "max_paths": int(amls_max_paths),
+        "n_points": int(amls_points),
+        "n_steps": int(amls_steps),
+        "seed": int(amls_seed),
+        "method": amls_method,
+        "antithetic": bool(amls_anti),
+    },
+}
 
 if not selected_panels:
-    st.warning("Sélectionne au moins un onglet à exécuter.")
-elif run_btn:
-    if maturity_date <= pricing_date:
-        st.error("La maturité doit être postérieure à la date de pricing.")
-        st.stop()
+    st.warning("Sélectionne au moins une analyse dans la barre latérale.")
+    st.stop()
 
-    market = Market(S0=s0, r=r, sigma=sigma)
-    trade = build_trade(
-        option_kind=option_kind,
-        strike=strike,
-        pricing_date=pricing_date,
-        maturity_date=maturity_date,
-        is_call=is_call,
-        q=q,
-        ex_div_date=ex_div_date if has_discrete_div else None,
-        div_amount=div_amount if has_discrete_div else 0.0,
-    )
+panels = st.tabs(selected_panels)
+tab_map = {name: tab for name, tab in zip(selected_panels, panels)}
 
-    bermudan_steps = bermudan_exercise_steps(pricing_date, maturity_date, int(n_steps)) if option_kind == "bermudan" else []
-    digital_strike_in = float(digital_strike) if option_kind == "digital_american" else None
-
-    tabs = st.tabs(selected_panels)
-    tab_map = {name: tab for name, tab in zip(selected_panels, tabs)}
-
-    if "Prix + Ecart-type" in tab_map:
-        with tab_map["Prix + Ecart-type"]:
-            with st.spinner("Calcul du run principal..."):
-                one = run_single_mc(
-                    market=market,
-                    trade=trade,
-                    n_paths=int(n_paths),
-                    n_steps=int(n_steps),
-                    seed=int(seed),
-                    method=simple_method,
-                    antithetic=bool(simple_antithetic),
-                    american_algo=american_algo,
-                    basis=basis,
-                    degree=degree,
-                    bermudan_steps=bermudan_steps,
-                    digital_strike=digital_strike_in,
-                    digital_payout=float(digital_payout),
-                )
+if run_btn:
+    if "Prix principal" in tab_map:
+        with tab_map["Prix principal"]:
+            row = one_run(market, trade, params)
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Prix", f"{one['price']:.6f}")
-            c2.metric("Std", f"{one['std']:.6f}")
-            c3.metric("SE", f"{one['se']:.6f}")
-            c4.metric("Temps", f"{one['time_s']:.3f}s")
-            st.dataframe(pd.DataFrame([one]), use_container_width=True)
+            
+            
+            c1.metric("Prix", f"{row['price']:.6f}")
+            c2.metric("Std", f"{row['std']:.6f}")
+            c3.metric("SE", f"{row['se']:.6f}")
+            c4.metric("Temps", f"{row['time_s']:.3f}s")
+            st.dataframe(pd.DataFrame([row]), width='stretch')
 
-    if "Comparatif performances MC" in tab_map:
-        with tab_map["Comparatif performances MC"]:
-            if not methods or not antithetics:
-                st.warning("Sélectionne au moins un mode et un antithetic pour le comparatif.")
-            else:
-                hard_mc_limit = 60_000_000
-                combos = max(1, len(methods) * len(antithetics))
-                if int(n_paths) * int(n_steps) * combos > hard_mc_limit:
-                    st.error("Charge comparatif trop élevée. Réduis n_paths/n_steps ou le nombre de combinaisons.")
-                else:
-                    with st.spinner("Calcul du comparatif MC..."):
-                        mc_df = run_batch_pricing(
-                            market=market,
-                            trade=trade,
-                            n_paths=int(n_paths),
-                            n_steps=int(n_steps),
-                            seed=int(seed),
-                            methods=methods,
-                            antithetics=antithetics,
-                            american_algo=american_algo,
-                            basis=basis,
-                            degree=degree,
-                            bermudan_steps=bermudan_steps,
-                            digital_strike=digital_strike_in,
-                            digital_payout=float(digital_payout),
-                        )
-                    st.dataframe(mc_df, use_container_width=True)
-
-                    st.markdown("*Moyennes par configuration (method × antithetic)*")
-                    by_combo = mc_df.groupby(["method", "antithetic"], as_index=False)[["price", "std", "se", "time_s"]].mean()
-                    st.dataframe(by_combo, use_container_width=True)
-
-                    st.markdown("*Moyennes par antithetic*")
-                    by_anti = mc_df.groupby(["antithetic"], as_index=False)[["price", "std", "se", "time_s"]].mean()
-                    st.dataframe(by_anti, use_container_width=True)
-
-                    st.markdown("*Moyennes par méthode (scalar vs vector)*")
-                    by_method = mc_df.groupby(["method"], as_index=False)[["price", "std", "se", "time_s"]].mean()
-                    st.dataframe(by_method, use_container_width=True)
-
-                    st.bar_chart(mc_df.set_index(mc_df["method"] + "|anti=" + mc_df["antithetic"].astype(str))["time_s"])
-
-    if "Comparatif MC vs Tree" in tab_map:
-        with tab_map["Comparatif MC vs Tree"]:
-            if option_kind not in ("european", "american"):
-                st.warning("Le pricing tree de cette vue supporte european/american vanilla uniquement.")
-            else:
-                with st.spinner("Calcul MC + Tree..."):
-                    mc_one = run_single_mc(
-                        market=market,
-                        trade=trade,
-                        n_paths=int(n_paths),
-                        n_steps=int(n_steps),
-                        seed=int(seed),
-                        method=simple_method,
-                        antithetic=bool(simple_antithetic),
-                        american_algo=american_algo,
-                        basis=basis,
-                        degree=degree,
-                        bermudan_steps=bermudan_steps,
-                        digital_strike=digital_strike_in,
-                        digital_payout=float(digital_payout),
-                    )
-                    tree_one = run_tree_single(
-                        s0=s0,
-                        r=r,
-                        sigma=sigma,
-                        strike=strike,
-                        is_call=is_call,
-                        exercise=option_kind,
-                        pricing_date=pricing_date,
-                        maturity_date=maturity_date,
-                        tree_steps=int(tree_steps),
-                        ex_div_date=ex_div_date if has_discrete_div else None,
-                        div_amount=div_amount if has_discrete_div else 0.0,
-                        optimize=tree_optimize,
-                        threshold=tree_threshold,
-                    )
-                comp_df = pd.DataFrame([mc_one, tree_one])
-                comp_df["diff_price_vs_mc"] = comp_df["price"] - mc_one["price"]
-                comp_df["time_ratio_vs_mc"] = comp_df["time_s"] / mc_one["time_s"]
-                st.dataframe(comp_df, use_container_width=True)
-
-    if "Convergence MC" in tab_map:
-        with tab_map["Convergence MC"]:
-            with st.spinner("Calcul convergence MC..."):
-                n_paths_grid = np.unique(np.round(np.logspace(np.log10(1000), np.log10(max(2000, int(n_paths))), 8)).astype(int))
-                conv_df, conv_slope = run_mc_convergence_regression(
-                    market=market,
-                    trade=trade,
-                    n_steps=int(n_steps),
-                    seed=int(seed),
-                    antithetic=bool(conv_antithetic),
-                    method=conv_method,
-                    american_algo=american_algo,
-                    basis=basis,
-                    degree=degree,
-                    exercise_steps=bermudan_steps,
-                    digital_strike=digital_strike_in,
-                    digital_payout=float(digital_payout),
-                    n_paths_grid=list(map(int, n_paths_grid)),
-                )
-            st.metric("Pente log(SE) vs log(Npaths)", f"{conv_slope:.4f}")
-            st.dataframe(conv_df, use_container_width=True)
-            st.line_chart(conv_df.set_index("n_paths")["se"])
-    if "Greeks (MC)" in tab_map:
-        with tab_map["Greeks (MC)"]:
-            with st.spinner("Calcul des Greeks MC par différences finies..."):
-                greeks_df = run_mc_greeks(
-                    market=market,
-                    trade=trade,
-                    n_paths=int(n_paths),
-                    n_steps=int(n_steps),
-                    seed=int(seed),
-                    method=simple_method,
-                    antithetic=bool(simple_antithetic),
-                    american_algo=american_algo,
-                    basis=basis,
-                    degree=int(degree),
-                    bermudan_steps=bermudan_steps,
-                    digital_strike=digital_strike_in,
-                    digital_payout=float(digital_payout),
-                    eps_spot=float(eps_spot),
-                    eps_vol=float(eps_vol),
-                    eps_rate=float(eps_rate),
-                    eps_time_days=int(eps_time_days),
-                )
-
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Delta", f"{greeks_df.loc[greeks_df['greek'] == 'delta', 'value'].iat[0]:.6f}")
-            c2.metric("Gamma", f"{greeks_df.loc[greeks_df['greek'] == 'gamma', 'value'].iat[0]:.6f}")
-            c3.metric("Vega", f"{greeks_df.loc[greeks_df['greek'] == 'vega', 'value'].iat[0]:.6f}")
-            st.dataframe(greeks_df, use_container_width=True)
-            st.caption(
-                "Les valeurs sont obtenues par différences finies centrées avec les epsilons réglés dans la barre latérale."
+    if "Greeks" in tab_map:
+        with tab_map["Greeks (via core_greeks)"]:
+            if params.method != "vector":
+                st.warning("Les greeks MC du module central sont vectoriels: calcul forcé en mode vector.")
+            greek_params = build_params(
+                int(n_paths), int(n_steps), int(seed), bool(antithetic), "vector", american_algo, basis, int(degree)
             )
-    if "Régression de sensibilité" in tab_map:
-        with tab_map["Régression de sensibilité"]:
-            var_name = st.selectbox("Variable stress", options=["s0", "sigma", "r", "strike"], index=0)
-            pct_span = st.slider("Amplitude ±%", min_value=5, max_value=50, value=20, step=5)
-            n_points = st.slider("Nombre de points", min_value=5, max_value=21, value=9, step=2)
-            base_val = {"s0": float(s0), "sigma": float(sigma), "r": float(r), "strike": float(strike)}[var_name]
-            low = max(base_val * (1.0 - pct_span / 100.0), 1e-6 if var_name in ("sigma", "r") else 0.01)
-            high = base_val * (1.0 + pct_span / 100.0)
-            var_values = np.linspace(low, high, n_points)
+            mc_greeks, ref_greeks = core_greeks(
+                market,
+                trade,
+                greek_params,
+                shift_spot=float(greek_shift_spot),
+                shift_vol=float(greek_shift_vol),
+                tree_N=int(greek_tree_n),
+            )
+            grec_rows = []
+            keys = sorted(set(mc_greeks.keys()) | set(ref_greeks.keys()))
+            for k in keys:
+                mc_v = mc_greeks.get(k, np.nan)
+                ref_v = ref_greeks.get(k, np.nan)
+                grec_rows.append({"greek": k, "mc": mc_v, "ref": ref_v, "diff": mc_v - ref_v})
+            grec_df = pd.DataFrame(grec_rows)
+            st.dataframe(grec_df, use_container_width=True)
+            st.caption("Epsilons utilisés: ΔS = {:.4f}, Δσ = {:.4f}. (rho/theta suivent les réglages internes du module greeks.)".format(float(greek_shift_spot), float(greek_shift_vol)))
 
-            base_inputs = {
-                "s0": float(s0),
-                "sigma": float(sigma),
-                "r": float(r),
-                "strike": float(strike),
-                "option_kind": option_kind,
-                "pricing_date": pricing_date,
-                "maturity_date": maturity_date,
-                "is_call": is_call,
-                "q": float(q),
-                "has_discrete_div": has_discrete_div,
-                "ex_div_date": ex_div_date,
-                "div_amount": float(div_amount),
-                "n_paths": int(max(5000, n_paths // 10)),
-                "n_steps": int(n_steps),
-                "seed": int(seed),
-                "reg_antithetic": True,
-                "reg_method": "vector",
-                "american_algo": american_algo,
-                "basis": basis,
-                "degree": int(degree),
-                "bermudan_steps": bermudan_steps,
-                "digital_strike_in": digital_strike_in,
-                "digital_payout": float(digital_payout),
-                "tree_steps": int(max(200, tree_steps // 2)),
-                "tree_optimize": bool(tree_optimize),
-                "tree_threshold": float(tree_threshold),
-            }
+    if "Convergence Prix / SE / Erreur" in tab_map:
+        with tab_map["Convergence Prix / SE / Erreur"]:
+            ref, ref_name = benchmark_price(market, trade)
+            rows = []
+            for n in convergence_grid(int(conv_min_paths), int(conv_max_paths), int(conv_n_points)):
+                pconv = build_params(n, int(n_steps), int(seed), bool(antithetic), method, american_algo, basis, int(degree))
+                rconv = one_run(market, trade, pconv)
+                rows.append({
+                    "n_paths": n,
+                    "price": rconv["price"],
+                    "se": rconv["se"],
+                    "error_vs_ref": abs(rconv["price"] - ref),
+                    "se_times_sqrt_n": rconv["se"] * math.sqrt(n),
+                    "time_s": rconv["time_s"],
+                })
+            conv_df = pd.DataFrame(rows)
+            st.caption(f"Benchmark utilisé: {ref_name} = {ref:.6f}")
+            st.dataframe(conv_df, width='stretch')
+            c1, c2, c3, c4 = st.columns(4)
+            c1.line_chart(conv_df.set_index("n_paths")["price"])
+            c2.line_chart(conv_df.set_index("n_paths")[["se", "error_vs_ref"]])
+            c3.line_chart(conv_df.set_index("n_paths")["se_times_sqrt_n"])
+            c4.line_chart(conv_df.set_index("n_paths")["time_s"])
 
-            with st.spinner("Calcul régression de sensibilité..."):
-                prices_df, reg_df = run_stress_regression(
-                    var_name=var_name,
-                    var_values=var_values,
-                    base_inputs=base_inputs,
-                    mc_enabled=True,
-                    tree_enabled=True,
+    if "Convergence Delta" in tab_map:
+        with tab_map["Convergence Delta"]:
+            if method != "vector":
+                st.warning("Convergence delta calculée avec méthode vector (module greeks central).")
+            delta_rows = []
+            for n in convergence_grid(int(n_paths)):
+                pdelta = build_params(n, int(n_steps), int(seed), bool(antithetic), "vector", american_algo, basis, int(degree))
+                mc_greeks, ref_greeks = core_greeks(market, trade, pdelta, tree_N=300)
+                delta_rows.append(
+                    {
+                        "n_paths": n,
+                        "delta_mc": mc_greeks.get("delta", np.nan),
+                        "delta_ref": ref_greeks.get("delta", np.nan),
+                        "abs_error_delta": abs(mc_greeks.get("delta", np.nan) - ref_greeks.get("delta", np.nan)),
+                    }
                 )
-            st.dataframe(prices_df, use_container_width=True)
-            st.dataframe(reg_df, use_container_width=True)
-            st.line_chart(prices_df.pivot(index="x", columns="engine", values="price"))
+            ddf = pd.DataFrame(delta_rows)
+            st.dataframe(ddf, width='stretch')
+            st.line_chart(ddf.set_index("n_paths")[["delta_mc", "delta_ref", "abs_error_delta"]])
+    
+    
+    if "Convergence Orix (EU naive / AM naive / AM LS)" in tab_map:
+        with tab_map["Convergence Orix (EU naive / AM naive / AM LS)"]:
+            orix_df = convergence_multi_tests(
+                market=market,
+                trade=trade,
+                test_cfg=orix_test_cfg,
+                basis=basis,
+                degree=int(degree),
+            )
+            st.dataframe(orix_df, use_container_width=True)
+            st.line_chart(orix_df.pivot(index="n_paths", columns="test", values="price"))
+            st.line_chart(orix_df.pivot(index="n_paths", columns="test", values="time_s"))
+
+    if "Convergence SE / Error (3 tests)" in tab_map:
+        with tab_map["Convergence SE / Error (3 tests)"]:
+            se_df = convergence_multi_tests(
+                market=market,
+                trade=trade,
+                test_cfg=orix_test_cfg,
+                basis=basis,
+                degree=int(degree),
+            )
+            st.dataframe(se_df[["test", "n_paths", "se", "error_vs_ref", "time_s"]], use_container_width=True)
+            c1, c2 = st.columns(2)
+            c1.line_chart(se_df.pivot(index="n_paths", columns="test", values="se"))
+            c2.line_chart(se_df.pivot(index="n_paths", columns="test", values="error_vs_ref"))
+
+    if "Comparaisons performance" in tab_map:
+        with tab_map["Comparaisons performance"]:
+            combos = [("vector", False), ("vector", True), ("scalar", False), ("scalar", True)]
+            comp_rows = []
+            for m, anti in combos:
+                pp = build_params(int(n_paths), int(n_steps), int(seed), anti, m, american_algo, basis, int(degree))
+                comp_rows.append(one_run(market, trade, pp))
+            comp_df = pd.DataFrame(comp_rows)
+            st.dataframe(comp_df, use_container_width=True)
+
+            st.markdown("**Moyennes anti vs non anti**")
+            st.dataframe(comp_df.groupby("antithetic", as_index=False)[["price", "std", "se", "time_s"]].mean(), use_container_width=True)
+
+            st.markdown("**Moyennes scalar vs vector**")
+            st.dataframe(comp_df.groupby("method", as_index=False)[["price", "std", "se", "time_s"]].mean(), use_container_width=True)
+
+            c1, c2 = st.columns(2)
+            c1.bar_chart(comp_df.set_index(comp_df["method"] + "|anti=" + comp_df["antithetic"].astype(str))["time_s"])
+            c2.bar_chart(comp_df.set_index(comp_df["method"] + "|anti=" + comp_df["antithetic"].astype(str))["se"])
+
+    if "Effet degré régression LS" in tab_map:
+        with tab_map["Effet degré régression LS"]:
+            if exercise != "american" or american_algo != "ls":
+                st.info("Cette analyse est pertinente pour American + LS.")
+            degree_rows = []
+            for d in range(1, 7):
+                pdg = build_params(int(n_paths), int(n_steps), int(seed), bool(antithetic), method, "ls", basis, d)
+                res = one_run(market, trade, pdg)
+                degree_rows.append({"degree": d, "price": res["price"], "se": res["se"], "time_s": res["time_s"]})
+            deg_df = pd.DataFrame(degree_rows)
+            st.dataframe(deg_df, use_container_width=True)
+            st.line_chart(deg_df.set_index("degree")[["price", "se", "time_s"]])
+
+    if "Valeur moyenne actualisée par date" in tab_map:
+        with tab_map["Valeur moyenne actualisée par date"]:
+            prof_df = discounted_option_profile(market, trade, params)
+            st.dataframe(prof_df, use_container_width=True)
+            st.line_chart(prof_df.set_index("step")[["mean_discounted_option_value", "std_discounted_option_value"]])
 else:
-    st.info("Sélectionne des onglets, puis clique sur Lancer.")
+    st.info("Configure les paramètres puis clique sur Lancer.")
