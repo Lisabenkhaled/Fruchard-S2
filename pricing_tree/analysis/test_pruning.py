@@ -114,8 +114,7 @@ def prune_test() -> None:
     sheet_prune = ensure_sheet(wb, "Test Pruning")
     seuil_values = [10.0 ** (-k) for k in range(3, 16)]
 
-    app = wb.app
-    app.screen_updating = False
+    app = wb.app;app.screen_updating = False
  
     try:
         # Calcul du prix et temps sans pruning (baseline)
@@ -135,10 +134,9 @@ def prune_test() -> None:
 
     _clear_existing_charts(sheet_prune)
 
-    anchor = sheet_prune.range("F3")
+    anchor = sheet_prune.range((3, 6))
 
-    left = anchor.left; top1 = anchor.top;width = 640
-    height = 360;top2 = top1 + height + 20
+    left = anchor.left; top1 = anchor.top;width = 640;height = 360;top2 = top1 + height + 20
     _add_price_chart(sheet_prune, seuil_values, prices, baseline_price, left, top1, width, height)
     _add_time_chart(sheet_prune, seuil_values, times, baseline_time, left, top2, width, height)
 

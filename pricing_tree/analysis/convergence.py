@@ -38,7 +38,8 @@ def _write_convergence_table(sheet_cv: Any, start_col: str, start_row: int, data
     return end_row
 
 # helper
-def _build_helper_data(sheet_cv: Any, src_col: str, val_col: str, helper_col: str, start_row: int, end_row: int, headers: list[str]) -> None:
+def _build_helper_data(sheet_cv: Any, src_col: str, val_col: str, 
+                       helper_col: str, start_row: int, end_row: int, headers: list[str]) -> None:
     data_start_row = start_row + 1
     sheet_cv.range(f"{helper_col}{start_row}").value = headers
     n_rng = sheet_cv.range(f"{src_col}{data_start_row}:{src_col}{end_row}").value
@@ -48,11 +49,8 @@ def _build_helper_data(sheet_cv: Any, src_col: str, val_col: str, helper_col: st
 def _create_charts(sheet_cv: Any, start_col: str, start_row: int, end_row: int) -> None:
     # Création des graphiques
     width, height = 950, 500
-    top_start = 90
-    vertical_gap = 20
-    chart_anchor_col = "AB"
-    chart_anchor_row = 1
-    left_start = sheet_cv.range(f"{chart_anchor_col}{chart_anchor_row}").left
+    top_start = 90;vertical_gap = 20;chart_anchor_col = "AB"
+    chart_anchor_row = 1;left_start = sheet_cv.range(f"{chart_anchor_col}{chart_anchor_row}").left
 
     # Chart 1: Tree vs BS
     chart1 = sheet_cv.charts.add(left=left_start, top=top_start, width=width, height=height)
@@ -65,16 +63,14 @@ def _create_charts(sheet_cv: Any, start_col: str, start_row: int, end_row: int) 
     _build_helper_data(sheet_cv, start_col, "Y", helper_col, start_row, end_row, ["N", "(Tree - BS) x N"])
 
     chart2 = sheet_cv.charts.add(left=left_start, top=top_start + height + vertical_gap, width=width, height=height)
-    chart2.chart_type = "xy_scatter_smooth_no_markers"
-    chart2.set_source_data(sheet_cv.range(f"{helper_col}{start_row}:AB{end_row}"))
+    chart2.chart_type = "xy_scatter_smooth_no_markers";chart2.set_source_data(sheet_cv.range(f"{helper_col}{start_row}:AB{end_row}"))
     chart2.title = "(Tree - BS) x NbSteps vs N : Python"
 
     # Chart 3: Tree Error
     helper_cols = "AC"
     _build_helper_data(sheet_cv, start_col, "Z", helper_cols, start_row, end_row, ["N", "Tree Error"])
     chart3 = sheet_cv.charts.add(left=left_start, top=top_start + 2 * height + 2 * vertical_gap, width=width, height=height)
-    chart3.chart_type = "xy_scatter_smooth_no_markers"
-    chart3.set_source_data(sheet_cv.range(f"{helper_cols}{start_row}:AD{end_row}"))
+    chart3.chart_type = "xy_scatter_smooth_no_markers";chart3.set_source_data(sheet_cv.range(f"{helper_cols}{start_row}:AD{end_row}"))
     chart3.title = "Tree Error: Python"
 
     sheet_cv.range(f"AA{start_row}:AD{end_row}").font.color = (255, 255, 255)
@@ -104,7 +100,7 @@ def outil_convergence_excel()-> None:
     end_row = _write_convergence_table(sheet_cv, start_col, start_row, data)
     _create_charts(sheet_cv, start_col, start_row, end_row)
     sheet_cv.autofit()
-    
+
 #run
 def run_cv()->None:
     """
