@@ -19,7 +19,8 @@ def _compute_kprime(E: float, trunk_next: float, loga: float) -> int:
 
 @njit(fastmath=True, cache=True)
 # probabilities
-def _degenerate_probabilities(S_i_k: float, E: float, exp_r_dt: float, trunk_next: float, a: float, loga: float) -> tuple[float, float, float, int]:
+def _degenerate_probabilities(S_i_k: float, E: float, exp_r_dt: float, 
+                              trunk_next: float, a: float, loga: float) -> tuple[float, float, float, int]:
     base_next = trunk_next
     if base_next < MIN_P:
         base_next = max(MIN_P, S_i_k * exp_r_dt)
@@ -50,10 +51,8 @@ def _recenter_kprime(E: float, i: int, kprime: int, a: float, base_next: float) 
 
     # Recentrage de la position centrale si l’espérance sort des bornes
     S_mid = base_next * (a ** kprime)
-    S_up = S_mid * a
-    S_down = S_mid / a
-    lower = 0.5 * (S_mid + S_down)
-    upper = 0.5 * (S_mid + S_up)
+    S_up, S_down = S_mid * a, S_mid / a
+    lower, upper = 0.5 * (S_mid + S_down), 0.5 * (S_mid + S_up)
     shifts = 0
 
     # boucle while
@@ -64,10 +63,8 @@ def _recenter_kprime(E: float, i: int, kprime: int, a: float, base_next: float) 
         else:
             kprime -= 1
             S_mid /= a
-        S_up = S_mid * a
-        S_down = S_mid / a
-        lower = 0.5 * (S_mid + S_down)
-        upper = 0.5 * (S_mid + S_up)
+        S_up, S_down = S_mid * a, S_mid / a
+        lower, upper = 0.5 * (S_mid + S_down), 0.5 * (S_mid + S_up)
         shifts += 1
     return S_mid, kprime
 
