@@ -16,6 +16,7 @@ if str(REPO_ROOT) not in sys.path:
 from pricing_monte_carlo.core_pricer import CorePricingParams, core_price
 from pricing_monte_carlo.core_greeks import core_greeks
 from pricing_monte_carlo.model.market import Market
+from pricing_monte_carlo.convergence_rate_se import _prepare_n_values
 from pricing_monte_carlo.model.option import OptionTrade
 from pricing_monte_carlo.model.path_simulator import (
     simulate_gbm_paths_scalar,
@@ -23,39 +24,8 @@ from pricing_monte_carlo.model.path_simulator import (
 )
 from pricing_monte_carlo.utils.utils_bs import bs_price
 from pricing_tree.adaptateur import tree_price_from_mc
-
-# function to normalize number of path selon anti or not
-def normalize_n_paths(n_paths: int, antithetic: bool) -> int:
-    n = max(int(n_paths), 1)
-    if antithetic and n % 2 == 1:
-        return n + 1
-    return n  
-
-# Option trade
-def build_trade(
-    exercise: str,
-    strike: float,
-    is_call: bool,
-    pricing_date: dt.date,
-    maturity_date: dt.date,
-    q: float,
-    ex_div_date: Optional[dt.date],
-    div_amount: float,
-) -> OptionTrade:
-    # return
-    return OptionTrade(
-        strike=float(strike),
-        is_call=bool(is_call),
-        exercise=exercise,
-        pricing_date=pricing_date,
-        maturity_date=maturity_date,
-        q=float(q),
-        ex_div_date=ex_div_date,
-        div_amount=float(div_amount),
-    )
-
-# Parameters for the pricing
-def build_params(
+# pricing parameters
+def build_core_pricing_params(
     n_paths: int,
     n_steps: int,
     seed: int,
@@ -65,9 +35,10 @@ def build_params(
     basis: str = "laguerre",
     degree: int = 2,
 ) -> CorePricingParams:
-    # return
+    # normalize paths 
+    normalized_n_paths = int(_prepare_n_values([max(int(n_paths), 1)], bool(antithetic))[0])
     return CorePricingParams(
-        n_paths=normalize_n_paths(int(n_paths), bool(antithetic)),
+        n_paths=normalized_n_paths,
         n_steps=int(n_steps),
         seed=int(seed),
         antithetic=bool(antithetic),
@@ -77,7 +48,13 @@ def build_params(
         degree=int(degree),
         payoff="vanilla",
     )
-
+# convergence
+def convergence_grid(min_n: int, max_n: int, n_points: int) -> List[int]:
+    min_safe = max(int(min_n), 100)
+    max_safe = max(int(max_n), min_safe + 1)
+    pts = max(int(n_points), 2)
+    grid = np.unique(np.round(np.logspace(np.log10(min_safe), np.log10(max_safe), pts)).astype(int))
+    return list(map(int, grid))
 # Benchmarks : tree and BS
 def benchmark_price(market: Market, trade: OptionTrade) -> tuple[float, str]:
     no_discrete_div = (trade.ex_div_date is None) or (float(trade.div_amount) == 0.0)
@@ -118,14 +95,6 @@ def one_run(market: Market, trade: OptionTrade, p: CorePricingParams) -> Dict[st
         "Temps (s)": elapsed,
     }
 
-# for convergence
-def _convergence_row(n: int, out: Dict[str, Any], ref: float, ref_name: str) -> Dict[str, Any]:
-    min_safe = max(int(min_n), 100)
-    max_safe = max(int(max_n), min_safe + 1)
-    pts = max(int(n_points), 2)
-    grid = np.unique(np.round(np.logspace(np.log10(min_safe), np.log10(max_safe), pts)).astype(int))
-    return list(map(int, grid))
-
 def _convergence_row(n: int, out: dict, ref: float, ref_name: str) -> dict:
     return {
         "n_paths": int(n),
@@ -159,7 +128,7 @@ def run_convergence(
     rows = []
     
     for n in grid:
-        p = build_params(n, n_steps, seed, antithetic, method, algo, basis, degree)
+        p = build_core_pricing_params(n, n_steps, seed, antithetic, method, algo, basis, degree)
         out = one_run(market, trade, p)
         rows.append(_convergence_row(int(n), out, float(ref), str(ref_name)))
     return pd.DataFrame(rows)
@@ -190,7 +159,7 @@ def run_paths_analysis(
     # Sensibility analysis function of the number of paths
     rows = []
     for n_paths in paths_grid:
-        p = build_params(
+        p = build_core_pricing_params(
             n_paths=int(n_paths),
             n_steps=int(n_steps),
             seed=int(seed),
@@ -461,7 +430,7 @@ with tab_price:
     degree_price = st.slider("Degré LS", min_value=1, max_value=8, value=2)
 # after choosing parameters you press the button to price
     if st.button("Lancer le pricing", type="primary"):
-        trade = build_trade(
+        trade = OptionTrade(
             # option parameters
             exercise=exercise_price,
             strike=float(strike),
@@ -473,7 +442,7 @@ with tab_price:
             div_amount=float(div_amount) if has_div else 0.0,
         )
         # MC etc parameters
-        params = build_params(
+        params = build_core_pricing_params(
             int(n_paths_price),
             int(n_steps_price),
             int(seed_price),
@@ -510,7 +479,7 @@ with tab_greeks:
     eps_vol = e2.number_input("Epsilon vol (Δσ)", min_value=0.0001, value=0.01, step=0.005, format="%.4f")
 # press the button to run
     if st.button("Lancer les greeks", type="primary"):
-        trade = build_trade(
+        trade = OptionTrade(
             exercise=exercise_greeks,
             strike=float(strike),
             is_call=bool(is_call),
@@ -521,7 +490,7 @@ with tab_greeks:
             div_amount=float(div_amount) if has_div else 0.0,
         )
         # special parameters for MC etc
-        params = build_params(
+        params = build_core_pricing_params(
             int(n_paths_greeks),
             int(n_steps_greeks),
             int(seed_greeks),
@@ -598,7 +567,7 @@ with tab_conv_eu:
     # press the button to run
     if st.button("Lancer convergence EU", type="primary"):
         grid = convergence_grid(int(min_paths), int(max_paths), int(n_points))
-        trade_eu = build_trade(
+        trade_eu = OptionTrade(
             exercise="european",
             strike=float(strike),
             is_call=bool(is_call),
@@ -708,7 +677,7 @@ with tab_conv_am:
     # button to press to run
     if st.button("Lancer convergence AM", type="primary"):
         grid = convergence_grid(int(min_paths), int(max_paths), int(n_points))
-        trade_am = build_trade(
+        trade_am = OptionTrade(
             exercise="american",
             strike=float(strike),
             is_call=bool(is_call),
@@ -823,7 +792,7 @@ with tab_conv_delta:
     show_delta_pair = st.toggle("Tracer Delta MC et benchmark", value=True, key="cd_pair")
     if st.button("Lancer convergence delta", type="primary"):
         grid = convergence_grid(int(min_paths), int(max_paths), int(n_points))
-        trade = build_trade(
+        trade = OptionTrade(
             # option parameters
             exercise=exercise,
             strike=float(strike),
@@ -838,7 +807,7 @@ with tab_conv_delta:
         rows = []
         for n in grid:
             # parameters chose in the tab
-            params = build_params(
+            params = build_core_pricing_params(
                 int(n),
                 int(n_steps),
                 int(seed),
@@ -920,7 +889,7 @@ with tab_perf:
     zoom_steps = st.slider("Zoom marge Y (%)", min_value=0, max_value=25, value=2, key="pf_zoom_steps")
     # button to press
     if st.button("Lancer comparaison performance", type="primary"):
-        trade = build_trade(
+        trade = OptionTrade(
             exercise=exercise_perf,
             strike=float(strike),
             is_call=bool(is_call),
@@ -937,7 +906,7 @@ with tab_perf:
         for method_perf in ["vector", "scalar"]:
             for anti_perf in [False, True]:
                 for seed_perf in seeds:
-                    p = build_params(
+                    p = build_core_pricing_params(
                         int(n_paths_perf),
                         int(n_steps_perf),
                         int(seed_perf),
@@ -974,7 +943,7 @@ with tab_perf:
         plot_mean_bars_by_configuration(perf_df, graph_metrics)
     # button to press to run study by number of paths
     if st.button("Lancer étude par nombre de chemins", type="secondary"):
-        trade_steps = build_trade(
+        trade_steps = OptionTrade(
             exercise=exercise_perf,
             strike=float(strike),
             is_call=bool(is_call),
@@ -1098,7 +1067,7 @@ with tab_degree:
         if not basis_choices:
             st.warning("Sélectionne au moins une base de régression.")
         else:
-            trade = build_trade(
+            trade = OptionTrade(
                 exercise="american",
                 strike=float(strike),
                 is_call=bool(is_call),
@@ -1112,7 +1081,7 @@ with tab_degree:
             # parameters
             for basis in basis_choices:
                 for degree in range(int(degrees[0]), int(degrees[1]) + 1):
-                    p = build_params(
+                    p = build_core_pricing_params(
                         int(n_paths_deg),
                         int(n_steps_deg),
                         int(seed_deg),
@@ -1180,7 +1149,7 @@ with tab_profile:
     zoom_padding = st.slider("Zoom marge Y (%)", min_value=0, max_value=25, value=2, key="pr_zoom")
     # a button to run
     if st.button("Lancer profil actualisé", type="primary"):
-        trade = build_trade(
+        trade = OptionTrade(
             exercise=exercise_prof,
             strike=float(strike),
             is_call=bool(is_call),
@@ -1191,7 +1160,7 @@ with tab_profile:
             div_amount=float(div_amount) if has_div else 0.0,
         )
         # specific parameters chosen in the tab
-        params = build_params(
+        params = build_core_pricing_params(
             int(n_paths_prof),
             int(n_steps_prof),
             int(seed_prof),
