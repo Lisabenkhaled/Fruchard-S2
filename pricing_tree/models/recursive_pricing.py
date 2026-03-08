@@ -2,21 +2,29 @@ import functools
 import sys
 sys.setrecursionlimit(3000)  
 
-import functools
+from __future__ import annotations
+from collections.abc import Callable
+from typing import TYPE_CHECKING
+sys.setrecursionlimit(3000)
 
+if TYPE_CHECKING:
+    from .tree import TrinomialTree
 # cache global, isolé par arbre
-_GLOBAL_RECURSIVE_CACHE = {}
+_GLOBAL_RECURSIVE_CACHE: dict[int, dict[tuple[int, int], float]] = {}
 
-def recursive_cache():
+# recursive cache
+def recursive_cache() -> Callable[[Callable[..., float]], Callable[..., float]]:
     """
     Décorateur avec cache séparé par arbre.
     Chaque arbre (TrinomialTree) dispose de son propre cache,
     qui est automatiquement créé puis supprimé après le pricing.
     Cela évite les dérivées nulles lors des tests de Greeks.
     """
-    def decorator(func):
+    def decorator(func: Callable[..., float]) -> Callable[..., float]:
         @functools.wraps(func)
-        def wrapper(tree, i=0, k=0, cache=None):
+        def wrapper(
+            tree: TrinomialTree,i: int = 0,
+            k: int = 0,cache: dict[tuple[int, int], float] | None = None) -> float:
             tree_id = id(tree)
 
             # Crée un cache spécifique à cet arbre
@@ -35,8 +43,8 @@ def recursive_cache():
         return wrapper
     return decorator
 
-
-def clear_recursive_cache(tree=None):
+# clear cache
+def clear_recursive_cache(tree: TrinomialTree | None = None) -> None:
     """
     Supprime le cache global ou celui d’un arbre spécifique.
     À appeler à la fin de chaque pricing pour éviter les interférences
@@ -48,7 +56,10 @@ def clear_recursive_cache(tree=None):
         _GLOBAL_RECURSIVE_CACHE.pop(id(tree), None)
 
 @recursive_cache()
-def price_recursive(tree, i=0, k=0, cache=None):
+# recursive price
+def price_recursive(
+    tree: TrinomialTree,i: int = 0,
+    k: int = 0,cache: dict[tuple[int, int], float] | None = None) -> float:
     """
     Calcule le prix d’une option par la méthode récursive sur un arbre trinomial.
 
