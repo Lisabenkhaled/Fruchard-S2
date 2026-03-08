@@ -4,18 +4,26 @@ import time
 import numpy as np
 import pandas as pd
 import streamlit as st
+from dataclasses import replace
 import math
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 # Ensure repository root is importable when app is launched from subfolders
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 # imports from project
-from pricing_monte_carlo.core_pricer import CorePricingParams, core_price
+from pricing_monte_carlo.core_pricer import (
+    AmericanAlgo,
+    Basis,
+    CorePricingParams,
+    Method,
+    core_price,
+)
 from pricing_monte_carlo.core_greeks import core_greeks
 from pricing_monte_carlo.model.market import Market
+from pricing_monte_carlo.convergence_rate_se import _build_trade as _build_trade_from_convergence_rate_se
 from pricing_monte_carlo.convergence_rate_se import _prepare_n_values
 from pricing_monte_carlo.model.option import OptionTrade
 from pricing_monte_carlo.model.path_simulator import (
@@ -24,15 +32,42 @@ from pricing_monte_carlo.model.path_simulator import (
 )
 from pricing_monte_carlo.utils.utils_bs import bs_price
 from pricing_tree.adaptateur import tree_price_from_mc
+# Display options
+DisplayMode = Literal["Prix direct", "Écart à une référence", 
+                      "Écart au premier point", "Écart à la moyenne"]
+def build_trade(
+    exercise: str,
+    strike: float,
+    is_call: bool,
+    pricing_date: dt.date,
+    maturity_date: dt.date,
+    q: float,
+    ex_div_date: Optional[dt.date],
+    div_amount: float,
+) -> OptionTrade:
+    # Reuse the trade-construction entrypoint from convergence_rate_se, then override with UI inputs.
+    template_trade = _build_trade_from_convergence_rate_se()
+    return replace(
+        template_trade,
+        strike=float(strike),
+        is_call=bool(is_call),
+        exercise=exercise,
+        pricing_date=pricing_date,
+        maturity_date=maturity_date,
+        q=float(q),
+        ex_div_date=ex_div_date,
+        div_amount=float(div_amount),
+    )
+
 # pricing parameters
 def build_core_pricing_params(
     n_paths: int,
     n_steps: int,
     seed: int,
     antithetic: bool,
-    method: str = "vector",
-    american_algo: str = "ls",
-    basis: str = "laguerre",
+    method: Method = "vector",
+    american_algo: AmericanAlgo = "ls",
+    basis: Basis = "laguerre",
     degree: int = 2,
 ) -> CorePricingParams:
     # normalize paths 
@@ -114,10 +149,10 @@ def run_convergence(
     trade: OptionTrade,
     *,
     grid: List[int],
-    method: str,
+    method: Method,
     antithetic: bool,
-    algo: str,
-    basis: str,
+    algo: AmericanAlgo,
+    basis: Basis,
     degree: int,
     n_steps: int,
     seed: int,
@@ -150,10 +185,10 @@ def run_paths_analysis(
     paths_grid: List[int],
     n_steps: int,
     seed: int,
-    algo: str,
-    basis: str,
+    algo: AmericanAlgo,
+    basis: Basis,
     degree: int,
-    method: str,
+    method: Method,
     antithetic: bool,
 ) -> pd.DataFrame:
     # Sensibility analysis function of the number of paths
@@ -237,17 +272,16 @@ def compute_reference_lines(
         "Black-Scholes": bs_price_level,
         "Taux équivalent BS": r_equiv,
     }
-
+# simulate paths 
+def _simulate_paths(market: Market, trade: OptionTrade, p: CorePricingParams) -> tuple[np.ndarray, np.ndarray]:
+    if p.method == "vector":
+        return simulate_gbm_paths_vector(market, trade, p.n_paths, p.n_steps, 
+                                         seed=p.seed, antithetic=p.antithetic)
+    return simulate_gbm_paths_scalar(market, trade, p.n_paths, p.n_steps, seed=p.seed, 
+                                     antithetic=p.antithetic)
 # discounted option
 def discounted_option_profile(market: Market, trade: OptionTrade, p: CorePricingParams) -> pd.DataFrame:
-    if p.method == "vector":
-        times, paths = simulate_gbm_paths_vector(
-            market, trade, p.n_paths, p.n_steps, seed=p.seed, antithetic=p.antithetic)
-        
-    else:
-        times, paths = simulate_gbm_paths_scalar(
-            market, trade, p.n_paths, p.n_steps, seed=p.seed, antithetic=p.antithetic)
-        
+    times, paths = _simulate_paths(market, trade, p)  
     intrinsic = trade.payoff_vector(paths)
     discounts = np.exp(-float(market.r) * np.asarray(times, dtype=float))
     discounted = intrinsic * discounts[None, :]
@@ -265,7 +299,7 @@ def discounted_option_profile(market: Market, trade: OptionTrade, p: CorePricing
 def _apply_display_mode(
     df: pd.DataFrame,
     series_cols: List[str],
-    display_mode: str,
+    display_mode: DisplayMode,
     reference_name: Optional[str],
 ) -> pd.DataFrame:
     out = pd.DataFrame(df)
@@ -310,7 +344,7 @@ def plot_zoomable_multiline(
     data: pd.DataFrame,
     index_col: str,
     title: str,
-    display_mode: str,
+    display_mode: DisplayMode,
     reference_name: Optional[str] = None,
     zoom_padding_pct: int = 5,
 ) -> None:
@@ -341,7 +375,7 @@ def plot_metrics(
     index_col: str,
     choices: List[str],
     color_col: Optional[str] = None,
-    display_mode: str = "Prix direct",
+    display_mode: DisplayMode = "Prix direct",
     reference_name: Optional[str] = None,
     zoom_padding_pct: int = 5,
 ) -> None:
