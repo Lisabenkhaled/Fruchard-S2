@@ -465,7 +465,7 @@ if __name__ == "__main__":
         trade=TradeConfig(
             K=100.0,
             is_call=True,
-            is_american=False,
+            is_american=True,
             pricing_date=dt.date(2026, 3, 1),
             maturity_date=dt.date(2026, 12, 25),
             div_amount=3.0,
