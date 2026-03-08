@@ -1,16 +1,19 @@
 import sys
 import os
+from typing import Any
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import warnings
+
+# import from projects
 from core_pricer import input_parameters, run_backward_pricing, run_recursive_pricing, run_black_scholes
 from utils.utils_sheet import ensure_sheet
 from utils.utils_tree_error import tree_error
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 import xlwings as xw
 
-
-def outil_convergence_excel():
+# convergence avec excel
+def outil_convergence_excel()-> None:
     """
     Crée un test de convergence entre le prix du modèle trinomial et le modèle Black-Scholes.
     Écrit les résultats dans la feuille Excel 'Test Convergence' et trace deux graphiques :
@@ -26,10 +29,10 @@ def outil_convergence_excel():
 
     bs_val, _ = run_black_scholes(S0, K, r, sigma, T, is_call)
 
-    N_values = list(range(1, N + 1))
+    n_values: list[int] = list(range(1, N + 1))
 
     # En-têtes et configuration
-    headers = ["N", "Prix Tree", "Prix BS", "(Tree - BS) x N", "Tree Error"]
+    headers: list[str] = ["N", "Prix Tree", "Prix BS", "(Tree - BS) x N", "Tree Error"]
     start_col = "V"
     start_row = 5
     data_start_row = start_row + 1
@@ -39,15 +42,16 @@ def outil_convergence_excel():
     sheet_cv.range(f"{start_col}{start_row}:Y{start_row}").font.bold = True
 
     # Calcul des prix Tree et erreurs
-    data = []
-    for n in N_values:
+    data: list[list[float]] = []
+    for n in n_values:
         if method == "Backward":
-            price, _, _ = run_backward_pricing(market, option, n, exercise, optimize, threshold)
+            price, _, _ = run_backward_pricing(market, option, n, 
+                                               exercise, optimize, threshold)
         else:
-            price, _, _ = run_recursive_pricing(market, option, N, exercise, optimize, threshold)
+            price, _, _ = run_recursive_pricing(market, option, N,
+                                                 exercise, optimize, threshold)
 
-        error = tree_error(S0, sigma, r, T, n)
-        
+        error = tree_error(S0, sigma, r, T, n)       
         data.append([n, price, bs_val, (price - bs_val) * n, error])
 
     # Écriture des données
@@ -56,11 +60,9 @@ def outil_convergence_excel():
     # Création des graphiques
     width, height = 950, 500
     top_start = 90
-    left_start = 1780
     vertical_gap = 20
 
     left_start = sheet_cv.range("AB1").left
-
 
     # Chart 1: Tree vs BS
     chart1 = sheet_cv.charts.add(left=left_start, top=top_start, width=width, height=height)
@@ -69,7 +71,7 @@ def outil_convergence_excel():
     chart1.title = "Tree vs BS : Python"
 
     # Chart 2: (Tree - BS) x N
-    helper_col = "AA"   
+    helper_col = "AA"
     helper_header = ["N", "(Tree - BS) x N"]
     sheet_cv.range(f"{helper_col}{start_row}").value = helper_header
 
@@ -100,8 +102,8 @@ def outil_convergence_excel():
 
     sheet_cv.range(f"AA{start_row}:AD{end_row}").font.color = (255, 255, 255)
     sheet_cv.autofit()
-
-def run_cv():
+#run
+def run_cv()->None:
     """
     Vérifie si les conditions permettent de lancer le test de convergence.
     """

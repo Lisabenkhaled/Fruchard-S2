@@ -36,9 +36,12 @@ def _build_rate_data(market: Any,option: Any, N: int,exercise: Any,
     return r_values, bs_prices, tree_prices, diff
 
 # write rate data
-def _write_rate_data(sheet_pr: Any,r_values: NDArray[np.float64],
-    bs_prices: NDArray[np.float64],tree_prices: NDArray[np.float64],
-    diff: NDArray[np.float64],) -> None:
+def _write_rate_data(
+    sheet_pr: Any,
+    r_values: NDArray[np.float64],
+    bs_prices: NDArray[np.float64],
+    tree_prices: NDArray[np.float64],
+    diff: NDArray[np.float64]) -> None:
     headers = ["Taux", "BS", "Tree", "Tree - BS"]
     data = np.column_stack((r_values, bs_prices, tree_prices, diff))
     #start row and col
@@ -47,9 +50,12 @@ def _write_rate_data(sheet_pr: Any,r_values: NDArray[np.float64],
     sheet_pr.range((start_row + 1, start_col)).value = data
 
 #rate charts
-def _plot_rate_chart(sheet_pr: Any,r_values: NDArray[np.float64],
-    bs_prices: NDArray[np.float64],tree_prices: NDArray[np.float64],
-    diff: NDArray[np.float64],) -> None:
+def _plot_rate_chart(
+    sheet_pr: Any,
+    r_values: NDArray[np.float64],
+    bs_prices: NDArray[np.float64],
+    tree_prices: NDArray[np.float64],
+    diff: NDArray[np.float64]) -> None:
 
     fig, ax1 = plt.subplots(figsize=(7, 4.5))
 
