@@ -1,9 +1,14 @@
 from .models.market import Market as TreeMarket
 from .models.option_trade import Option as TreeOption
 from .greek_engine import compute_tree_greeks_engine
+from typing import Any
 
 
-def tree_greeks_from_mc(mc_market, mc_trade, N=10_000):
+def tree_greeks_from_mc(
+    mc_market: Any,
+    mc_trade: Any,
+    N: int = 10_000
+) -> Any:
 
     tree_market = TreeMarket(
         S0=mc_market.S0,

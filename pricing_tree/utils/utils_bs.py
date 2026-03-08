@@ -1,22 +1,31 @@
 from math import exp, sqrt, log
+from typing import Dict
+
 from scipy.stats import norm
 
 
-def d1(S, K, r, sigma, T):
+def d1(S: float, K: float, r: float, sigma: float, T: float) -> float:
     """
     Calcule le paramètre d1 du modèle de Black-Scholes (sans dividendes).
     """
     return (log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * sqrt(T))
 
 
-def d2(S, K, r, sigma, T):
+def d2(S: float, K: float, r: float, sigma: float, T: float) -> float:
     """
     Calcule le paramètre d2 = d1 - sigma * sqrt(T).
     """
     return d1(S, K, r, sigma, T) - sigma * sqrt(T)
 
 
-def bs_price(S, K, r, sigma, T, is_call=True):
+def bs_price(
+    S: float,
+    K: float,
+    r: float,
+    sigma: float,
+    T: float,
+    is_call: bool = True
+) -> float:
     """
     Prix d'une option européenne selon le modèle de Black-Scholes (sans dividendes).
 
@@ -46,7 +55,14 @@ def bs_price(S, K, r, sigma, T, is_call=True):
     return price
 
 
-def bs_greeks(S, K, r, sigma, T, is_call=True):
+def bs_greeks(
+    S: float,
+    K: float,
+    r: float,
+    sigma: float,
+    T: float,
+    is_call: bool = True
+) -> Dict[str, float]:
     """
     Calcule les principaux Greeks du modèle Black-Scholes (sans dividendes).
 
@@ -61,10 +77,10 @@ def bs_greeks(S, K, r, sigma, T, is_call=True):
 
     df_r = exp(-r * T)
 
-    # Delta 
+    # Delta
     delta = Nd1 if is_call else -Nmd1
 
-    # Gamma et Vega 
+    # Gamma et Vega
     gamma = pdf_d1 / (S * sigma * sqrt(T))
     vega = S * pdf_d1 * sqrt(T)
 

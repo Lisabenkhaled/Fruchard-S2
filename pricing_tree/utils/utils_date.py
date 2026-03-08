@@ -1,10 +1,15 @@
 import datetime as dt
+from typing import Union, List, Optional
 
-def datetime_to_years(date_value, ref_date):
+
+def datetime_to_years(
+    date_value: Union[dt.date, dt.datetime, float, int, List],
+    ref_date: Union[dt.date, dt.datetime]
+) -> Optional[Union[float, List[float]]]:
     """
     Convertit une date (ou une liste de dates) en temps (float, années)
     """
-    
+
     if date_value is None:
         return None
 
@@ -15,7 +20,7 @@ def datetime_to_years(date_value, ref_date):
     # Si c'est une seule date
     if isinstance(date_value, dt.datetime) and isinstance(ref_date, dt.datetime):
         return (date_value - ref_date).days / 365.0
-    
+
     if isinstance(date_value, dt.date) and isinstance(ref_date, dt.date):
         return (date_value - ref_date).days / 365.0
 
@@ -23,7 +28,11 @@ def datetime_to_years(date_value, ref_date):
     if isinstance(date_value, (int, float)):
         return float(date_value)
 
-def years_to_datetime(t_value, ref_date):
+
+def years_to_datetime(
+    t_value: Union[float, int, dt.date, dt.datetime, List],
+    ref_date: Union[dt.date, dt.datetime]
+) -> Optional[Union[dt.date, dt.datetime, List]]:
     """
     Convertit un temps (en années) en datetime (ou liste de datetime)
     """
@@ -34,7 +43,7 @@ def years_to_datetime(t_value, ref_date):
     if isinstance(t_value, (list, tuple)):
         return [years_to_datetime(t, ref_date) for t in t_value]
 
-    # Si c'est déjà une date 
+    # Si c'est déjà une date
     if isinstance(t_value, (dt.date, dt.datetime)):
         return t_value
 

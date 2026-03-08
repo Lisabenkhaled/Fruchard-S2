@@ -46,7 +46,7 @@ def build_trade(
     maturity_date: dt.date,
     q: float,
     ex_div_date: Optional[dt.date],
-    div_amount: float,
+    div_amount: float
 ) -> OptionTrade:
     # Reuse the trade-construction entrypoint from convergence_rate_se, then override with UI inputs.
     template_trade = _build_trade_from_convergence_rate_se()
@@ -71,7 +71,7 @@ def build_core_pricing_params(
     method: Method = "vector",
     american_algo: AmericanAlgo = "ls",
     basis: Basis = "laguerre",
-    degree: int = 2,
+    degree: int = 2
 ) -> CorePricingParams:
     # normalize paths 
     normalized_n_paths = int(_prepare_n_values([max(int(n_paths), 1)], bool(antithetic))[0])
@@ -152,7 +152,6 @@ def _convergence_row(n: int, out: dict, ref: float, ref_name: str) -> dict:
 def run_convergence(
     market: Market,
     trade: OptionTrade,
-    *,
     grid: List[int],
     method: Method,
     antithetic: bool,
@@ -160,7 +159,7 @@ def run_convergence(
     basis: Basis,
     degree: int,
     n_steps: int,
-    seed: int,
+    seed: int
 ) -> pd.DataFrame:
     # convergence principal boucle: stock price/std/se/time for each N
     ref, ref_name = benchmark_price(market, trade)
@@ -184,7 +183,6 @@ def _paths_row(n_paths: int, out: Dict[str, Any]) -> Dict[str, Any]:
 def run_paths_analysis(
     market: Market,
     trade: OptionTrade,
-    *,
     paths_grid: List[int],
     n_steps: int,
     seed: int,
@@ -192,7 +190,7 @@ def run_paths_analysis(
     basis: Basis,
     degree: int,
     method: Method,
-    antithetic: bool,
+    antithetic: bool
 ) -> pd.DataFrame:
     
     # Sensibility analysis function of the number of paths
@@ -234,7 +232,7 @@ def _tree_reference(market: Market, trade: OptionTrade, tree_n: int) -> float:
         N=int(tree_n),
         optimize=False,
         threshold=0.0,
-        return_tree=False,
+        return_tree=False
     )
     return float(out_tree["tree_price"])
 
@@ -253,8 +251,7 @@ def _equivalent_rate(market: Market, trade: OptionTrade) -> tuple[float, float]:
 def compute_reference_lines(
     market: Market,
     trade: OptionTrade,
-    *,
-    tree_n: int = 500,
+    tree_n: int = 500
 ) -> Dict[str, float]:
     """References de convergence: arbre + Black-Scholes taux équivalent."""
     tree_price = _tree_reference(market, trade, int(tree_n))
@@ -302,7 +299,7 @@ def _apply_display_mode(
     df: pd.DataFrame,
     series_cols: List[str],
     display_mode: DisplayMode,
-    reference_name: Optional[str],
+    reference_name: Optional[str]
 ) -> pd.DataFrame:
     out = pd.DataFrame(df)
 
@@ -352,7 +349,7 @@ def plot_zoomable_multiline(
     title: str,
     display_mode: DisplayMode,
     reference_name: Optional[str] = None,
-    zoom_padding_pct: int = 5,
+    zoom_padding_pct: int = 5
 ) -> None:
     
     if data.empty or index_col not in data.columns:
@@ -389,7 +386,7 @@ def plot_metrics(
     color_col: Optional[str] = None,
     display_mode: DisplayMode = "Prix direct",
     reference_name: Optional[str] = None,
-    zoom_padding_pct: int = 5,
+    zoom_padding_pct: int = 5
 ) -> None:
     
     # If any metric is chosen by the user

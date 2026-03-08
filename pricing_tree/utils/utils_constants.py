@@ -1,10 +1,10 @@
 from numba import njit
 
-EPS = 1e-14
-MIN_P = 1e-12
+EPS: float = 1e-14
+MIN_P: float = 1e-12
 
 @njit(fastmath=True, cache=True)
-def clip_and_normalize(pD, pM, pU):
+def clip_and_normalize(pD: float, pM: float, pU: float) -> tuple[float, float, float]:
     """
     Nettoie et renormalise les probabilités locales.
     Compatible Numba, logique identique à la version Python.
@@ -28,5 +28,6 @@ def clip_and_normalize(pD, pM, pU):
     # Normalisation
     s = pD + pM + pU
     if s < EPS:
-        return 0.0, 1.0, 0.0  
+        return 0.0, 1.0, 0.0
+
     return pD / s, pM / s, pU / s

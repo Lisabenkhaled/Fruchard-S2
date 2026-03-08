@@ -3,7 +3,7 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from models.dividend import DividendPolicy
-
+from typing import Optional
 
 class Market:
     """
@@ -28,9 +28,15 @@ class Market:
         Liste contenant les politiques de dividende (peut être vide).
     """
 
-    def __init__(self, S0: float, r: float, sigma: float, T: float,
-                 exdivdate=None, pricing_date=None,
-                 rho: float = 0.0, lam: float = 0.0):
+    def __init__(self,
+             S0: float,
+             r: float,
+             sigma: float,
+             T: float,
+             exdivdate: Optional[float] = None,
+             pricing_date: Optional[float] = None,
+             rho: float = 0.0,
+             lam: float = 0.0) -> None:
         """
         Initialise les paramètres du marché.
         """

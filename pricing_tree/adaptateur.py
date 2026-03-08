@@ -1,14 +1,11 @@
-# pricing_tree/adaptateur.py
 from __future__ import annotations
-
 from typing import Dict, Any
-
 from .pricer import price_tree_backward_direct
 
 
 def tree_price_from_mc(
-    mc_market,
-    mc_trade,
+    mc_market: Any,
+    mc_trade: Any,
     N: int = 2000,
     optimize: bool = False,
     threshold: float = 1e-14,

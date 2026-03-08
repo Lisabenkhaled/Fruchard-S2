@@ -193,7 +193,7 @@ def main() -> None:
         maturity_date=dt.date(2026, 12, 25),
         q=0.0,
         ex_div_date=dt.date(2026, 11, 30),
-        div_amount=3.0,
+        div_amount=0.0,
     )
 
     # AM Naive

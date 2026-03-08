@@ -27,10 +27,8 @@ def _ls_regression_values(
     return ols_fit_predict(X, cont_values, X)
 
 
-# =========================================================
-# European MC — Scalar
-# =========================================================
 
+# European MC — Scalar
 def _european_scalar_price_paths(
     paths: NDArray[np.float64],
     n_paths: int,
@@ -53,7 +51,6 @@ def _european_scalar_price_paths(
         discounted_payoffs[i] = disc * payoff_scalar(ST)
 
     return discounted_payoffs
-
 
 def price_european_naive_mc_scalar(
     market: Market,
@@ -87,35 +84,20 @@ def price_european_naive_mc_scalar(
 
     return float(price), discounted_payoffs
 
-
-# =========================================================
 # European MC — Vector
-# =========================================================
-
 def _european_vector_terminal_prices(
     market: Market,
     trade: OptionTrade,
     dW: NDArray[np.float64]
-) -> NDArray[np.float64]:
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     """
-    Return terminal stock prices S_T for all paths given the (N, M) dW matrix.
+    Simulate full GBM paths from dW and return
+    Both the no-dividend and dividend cases go through
+    _simulate_gbm_paths_vector_from_dW so the full (N, M+1) path matrix
+    is always available.
     """
-    r: float = float(market.r)
-    q: float = float(trade.q)
-    sigma: float = float(market.sigma)
-    S0: float = float(market.S0)
-    T: float = float(trade.T)
-
-    # No dividende
-    if abs(float(trade.div_amount)) < 1e-10:
-        drift_T: float = (r - q - 0.5 * sigma * sigma) * T
-        Z: NDArray[np.float64] = dW.sum(axis=1)
-        return S0 * np.exp(drift_T + sigma * Z)
-
-    # Discrete dividend present — simulate full vectorised paths from same dW
     _, paths = _simulate_gbm_paths_vector_from_dW(market, trade, dW)
-    return paths[:, -1]
-
+    return paths, paths[:, -1]
 
 def price_european_naive_mc_vector(
     market: Market,
@@ -126,8 +108,14 @@ def price_european_naive_mc_vector(
     antithetic: bool = False
 ) -> tuple[float, NDArray[np.float64]]:
     """
-    Monte Carlo price of a European option using vectorised pricer
+    Monte Carlo price of a European option using vectorised pricer.
+
+    Always simulates full GBM paths via _simulate_gbm_paths_vector_from_dW
+    (same route as the dividend case) so LAST_PATHS is set and the excel
+    diagnostic can reuse the exact same paths.
     """
+    import model.path_simulator as path_sim
+
     r: float = float(market.r)
     T: float = float(trade.T)
     N: int = int(n_paths)
@@ -135,12 +123,17 @@ def price_european_naive_mc_vector(
 
     disc: float = math.exp(-r * T)
 
-    # Draw Brownian increments 
+    # Draw Brownian increments — same dW as scalar pricer for same seed
     bm = BrownianMotion(seed)
     dW = bm.dW(N, M, T / M, antithetic=antithetic)    # shape (N, M)
 
-    # Compute terminal prices
-    ST = _european_vector_terminal_prices(market, trade, dW)
+    # Simulate full paths and extract terminal prices
+    paths, ST = _european_vector_terminal_prices(market, trade, dW)
+
+    # Expose paths for diagnostics (same interface as simulate_gbm_paths_vector)
+    times = np.linspace(0.0, T, M + 1)
+    path_sim.LAST_PATHS = paths
+    path_sim.LAST_TIMES = times
 
     # Apply payoff and discount in one vectorised multiply
     discounted_payoffs = disc * trade.payoff_vector(ST)
@@ -148,10 +141,7 @@ def price_european_naive_mc_vector(
     return float(np.mean(discounted_payoffs)), discounted_payoffs
 
 
-# =========================================================
 # American Naive MC — Scalar
-# =========================================================
-
 def _american_naive_scalar_best_pv(
     paths: NDArray[np.float64],
     n_paths: int,
@@ -165,15 +155,12 @@ def _american_naive_scalar_best_pv(
         row = paths[i]
         best: float = payoff_scalar(float(row[0]))   # payoff at t=0
         disc_j: float = step_df
-
         for j in range(1, n_steps + 1):    # step by step
             pv: float = payoff_scalar(float(row[j])) * disc_j
             if pv > best:                  # keep the best discounted payoff
                 best = pv
             disc_j *= step_df              # accumulate discount
-
         best_pv[i] = best
-
     return best_pv
 
 
@@ -187,7 +174,6 @@ def price_american_naive_mc_scalar(
 ) -> tuple[float, NDArray[np.float64]]:
     """
     Naive American MC price 
-    Estimates the option value as the average of the best discounted intrinsic payoff along each path.
     """
     r: float = float(market.r)
     T: float = float(trade.T)
@@ -203,10 +189,7 @@ def price_american_naive_mc_scalar(
     return float(best_pv.sum() / N), best_pv
 
 
-# =========================================================
 # American Naive MC — Vector
-# =========================================================
-
 def price_american_naive_mc_vector(
     market: Market,
     trade: OptionTrade,
@@ -233,10 +216,8 @@ def price_american_naive_mc_vector(
     return float(best_pv.mean()), best_pv
 
 
-# =========================================================
-# American Longstaff-Schwartz — Scalar
-# =========================================================
 
+# American Longstaff-Schwartz — Scalar
 def _ls_scalar_backward(
     S: NDArray[np.float64],
     n_paths: int,
@@ -285,7 +266,6 @@ def _ls_scalar_backward(
 
     return V
 
-
 def price_american_ls_scalar(
     market: Market,
     trade: OptionTrade,
@@ -324,10 +304,7 @@ def price_american_ls_scalar(
     return total / N, discounted_cf
 
 
-# =========================================================
 # American Longstaff-Schwartz — Vector
-# =========================================================
-
 def _ls_vector_backward(
     S: NDArray[np.float64],
     n_steps: int,
@@ -366,7 +343,6 @@ def _ls_vector_backward(
 
     return V
 
-
 def price_american_ls_vector(
     market: Market,
     trade: OptionTrade,
@@ -385,7 +361,12 @@ def price_american_ls_vector(
     M: int = int(n_steps)
 
     # Simulate all paths at once — shape (N, M+1)
-    _, S = simulate_gbm_paths_vector(market, trade, int(n_paths), M, seed, antithetic)
+    times, S = simulate_gbm_paths_vector(market, trade, int(n_paths), M, seed, antithetic)
+
+    # Expose paths for diagnostics (same interface as price_european_naive_mc_vector)
+    import model.path_simulator as path_sim
+    path_sim.LAST_PATHS = S
+    path_sim.LAST_TIMES = np.asarray(times, dtype=float)
 
     # One-step discount factor used throughout backward induction
     df: float = math.exp(-r * (T / M))
