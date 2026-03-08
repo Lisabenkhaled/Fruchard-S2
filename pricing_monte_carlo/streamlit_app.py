@@ -6,7 +6,7 @@ import pandas as pd
 import streamlit as st
 import math
 import sys
-
+from typing import Any, Dict, List, Optional
 # Ensure repository root is importable when app is launched from subfolders
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -39,7 +39,7 @@ def build_trade(
     pricing_date: dt.date,
     maturity_date: dt.date,
     q: float,
-    ex_div_date: dt.date | None,
+    ex_div_date: Optional[dt.date],
     div_amount: float,
 ) -> OptionTrade:
     # return
@@ -104,7 +104,7 @@ def benchmark_price(market: Market, trade: OptionTrade) -> tuple[float, str]:
     return float(out["tree_price"]), "Arbre trinomial"
 
 # for price in UI
-def one_run(market: Market, trade: OptionTrade, p: CorePricingParams) -> dict:
+def one_run(market: Market, trade: OptionTrade, p: CorePricingParams) -> Dict[str, Any]:
     price, std, se, elapsed = core_price(market, trade, p)
     return {
         "Méthode": "Vectorielle" if p.method == "vector" else "Scalaire",
@@ -119,7 +119,7 @@ def one_run(market: Market, trade: OptionTrade, p: CorePricingParams) -> dict:
     }
 
 # for convergence
-def convergence_grid(min_n: int, max_n: int, n_points: int) -> list[int]:
+def _convergence_row(n: int, out: Dict[str, Any], ref: float, ref_name: str) -> Dict[str, Any]:
     min_safe = max(int(min_n), 100)
     max_safe = max(int(max_n), min_safe + 1)
     pts = max(int(n_points), 2)
@@ -138,12 +138,13 @@ def _convergence_row(n: int, out: dict, ref: float, ref_name: str) -> dict:
         "Benchmark": ref,
         "Nom benchmark": ref_name,
     }
+
 # function to run convergence
 def run_convergence(
     market: Market,
     trade: OptionTrade,
     *,
-    grid: list[int],
+    grid: List[int],
     method: str,
     antithetic: bool,
     algo: str,
@@ -164,7 +165,7 @@ def run_convergence(
     return pd.DataFrame(rows)
 
 # Paths
-def _paths_row(n_paths: int, out: dict) -> dict:
+def _paths_row(n_paths: int, out: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "n_paths": int(n_paths),
         "Prix": out["Prix"],
@@ -177,7 +178,7 @@ def run_paths_analysis(
     market: Market,
     trade: OptionTrade,
     *,
-    paths_grid: list[int],
+    paths_grid: List[int],
     n_steps: int,
     seed: int,
     algo: str,
@@ -248,7 +249,7 @@ def compute_reference_lines(
     trade: OptionTrade,
     *,
     tree_n: int = 500,
-) -> dict[str, float]:
+) -> Dict[str, float]:
     """References de convergence: arbre + Black-Scholes taux équivalent."""
     tree_price = _tree_reference(market, trade, int(tree_n))
     r_equiv, T = _equivalent_rate(market, trade)
@@ -294,11 +295,11 @@ def discounted_option_profile(market: Market, trade: OptionTrade, p: CorePricing
 # display mode with multiple choices
 def _apply_display_mode(
     df: pd.DataFrame,
-    series_cols: list[str],
+    series_cols: List[str],
     display_mode: str,
-    reference_name: str | None,
+    reference_name: Optional[str],
 ) -> pd.DataFrame:
-    out = df.copy()
+    out = pd.DataFrame(df)
 
 # Option 1: ecart with a reference (to choose)
     if display_mode == "Écart à une référence":
@@ -329,7 +330,8 @@ def _vega_line_spec(index_col: str, title: str, y_min: float, y_max: float) -> d
             "x": {"field": index_col, "type": "quantitative", "title": index_col},
             "y": {"field": "Valeur", "type": "quantitative", "title": "Valeur", "scale": {"domain": [y_min, y_max]}},
             "color": {"field": "Série", "type": "nominal"},
-            "tooltip": [{"field": index_col, "type": "quantitative"}, {"field": "Série", "type": "nominal"}, {"field": "Valeur", "type": "quantitative", "format": ".8f"}],
+            "tooltip": [{"field": index_col, "type": "quantitative"}, {"field": "Série", "type": "nominal"}, 
+                        {"field": "Valeur", "type": "quantitative", "format": ".8f"}],
         },
         "height": 340,
         "title": title,
@@ -337,11 +339,10 @@ def _vega_line_spec(index_col: str, title: str, y_min: float, y_max: float) -> d
 # include an option to choose how much you want to zoom for graphics
 def plot_zoomable_multiline(
     data: pd.DataFrame,
-    *,
     index_col: str,
     title: str,
     display_mode: str,
-    reference_name: str | None = None,
+    reference_name: Optional[str] = None,
     zoom_padding_pct: int = 5,
 ) -> None:
     if data.empty or index_col not in data.columns:
@@ -356,9 +357,11 @@ def plot_zoomable_multiline(
     long_df = long_df.dropna(subset=[index_col, "Valeur"])
     if long_df.empty:
         return
+    # min and max values
     y_min = float(long_df["Valeur"].min())
     y_max = float(long_df["Valeur"].max())
     span = y_max - y_min
+    # compute a dynamic padding to keep a zoomed chart readable even on flat series
     pad = span * (max(int(zoom_padding_pct), 0) / 100.0) if span > 0.0 else max(abs(y_max), 1.0) * 0.02
     spec = _vega_line_spec(index_col, title, y_min - pad, y_max + pad)
 
@@ -366,13 +369,12 @@ def plot_zoomable_multiline(
 # plot metrics
 def plot_metrics(
     df: pd.DataFrame,
-    *,
     index_col: str,
-    choices: list[str],
-    color_col: str | None = None,
-    display_mode: str,
-    reference_name: str | None,
-    zoom_padding_pct: int,
+    choices: List[str],
+    color_col: Optional[str] = None,
+    display_mode: str = "Prix direct",
+    reference_name: Optional[str] = None,
+    zoom_padding_pct: int = 5,
 ) -> None:
     # If any metric is chosen by the user
     if not choices:
@@ -383,7 +385,7 @@ def plot_metrics(
         if color_col:
             plot_df = df.pivot(index=index_col, columns=color_col, values=metric).reset_index()
         else:
-            plot_df = df[[index_col, metric]].copy()
+            plot_df = df[[index_col, metric]]
         plot_zoomable_multiline(
             plot_df,
             index_col=index_col,
@@ -393,7 +395,7 @@ def plot_metrics(
             zoom_padding_pct=zoom_padding_pct,
         )
 # Bars for performance
-def plot_mean_bars_by_configuration(df: pd.DataFrame, metric_choices: list[str]) -> None:
+def plot_mean_bars_by_configuration(df: pd.DataFrame, metric_choices: List[str]) -> None:
     if not metric_choices:
         st.info("Sélectionne au moins une métrique pour afficher les histogrammes.")
         return
@@ -429,28 +431,18 @@ if maturity_date <= pricing_date:
     st.stop()
 
 market = Market(S0=float(s0), r=float(r), sigma=float(sigma))
-# name of all the tabs (onglets)
+# name of all the tabs (onglets) whiwh appears in streamlit
+tab_labels = [
+    "Prix", "Greeks",
+    "Convergence EU", "Convergence AM",
+    "Convergence Delta", "Comparaison performance",
+    "Test degré LS","Valeur actualisée",]
 (
-    tab_price,
-    tab_greeks,
-    tab_conv_eu,
-    tab_conv_am,
-    tab_conv_delta,
-    tab_perf,
-    tab_degree,
-    tab_profile,
-) = st.tabs(
-    [
-        "Prix",
-        "Greeks",
-        "Convergence EU",
-        "Convergence AM",
-        "Convergence Delta",
-        "Comparaison performance",
-        "Test degré LS",
-        "Valeur actualisée",
-    ]
-)
+    tab_price, tab_greeks,
+    tab_conv_eu, tab_conv_am,
+    tab_conv_delta, tab_perf,
+    tab_degree, tab_profile,
+) = st.tabs(tab_labels)
 
 with tab_price:
     # tab 1 = pricing 
@@ -630,7 +622,7 @@ with tab_conv_eu:
             seed=int(seed),
         )
         eu_naive["Test"] = "EU naive"
-        eu_df = eu_naive.copy()
+        eu_df = eu_naive
         # Compare with BS and tree
         refs = compute_reference_lines(market, trade_eu)
         eu_df["Réf arbre"] = refs["Arbre trinomial"]
@@ -655,7 +647,9 @@ with tab_conv_eu:
                 zoom_padding_pct=int(zoom_padding),
             )
             graph_metrics = [m for m in graph_metrics if m != "Prix"]
-        plot_metrics(eu_df, index_col="n_paths", choices=graph_metrics, color_col="Test", display_mode=display_mode, reference_name=reference_name, zoom_padding_pct=int(zoom_padding))
+        plot_metrics(eu_df, index_col="n_paths", choices=graph_metrics, color_col="Test", 
+                     display_mode=display_mode, reference_name=reference_name, 
+                     zoom_padding_pct=int(zoom_padding))
         # if you want to see with 1/sqrt(N)
         if show_inv_sqrt_curve:
             se_inv_df = add_inv_sqrt_n_fit(eu_df, inv_metric)
@@ -776,10 +770,12 @@ with tab_conv_am:
                 zoom_padding_pct=int(zoom_padding),
             )
             graph_metrics = [m for m in graph_metrics if m != "Prix"]
-        plot_metrics(am_df, index_col="n_paths", choices=graph_metrics, color_col="Test", display_mode=display_mode, reference_name=reference_name, zoom_padding_pct=int(zoom_padding))
+        plot_metrics(am_df, index_col="n_paths", choices=graph_metrics, 
+                     color_col="Test", display_mode=display_mode, 
+                     reference_name=reference_name, zoom_padding_pct=int(zoom_padding))
         # see speed of convergence
         if show_inv_sqrt_curve:
-            am_ls_only = am_df[am_df["Test"] == "AM LS"].copy()
+            am_ls_only = am_df[am_df["Test"] == "AM LS"]
             se_inv_df = add_inv_sqrt_n_fit(am_ls_only, inv_metric)
             plot_zoomable_multiline(
                 se_inv_df,
@@ -881,7 +877,9 @@ with tab_conv_delta:
                 zoom_padding_pct=int(zoom_padding),
             )
             remaining_metrics = [m for m in remaining_metrics if m not in {"Delta MC", "Delta benchmark"}]
-        plot_metrics(delta_df, index_col="n_paths", choices=remaining_metrics, display_mode=display_mode, reference_name=reference_name, zoom_padding_pct=int(zoom_padding))
+        plot_metrics(delta_df, index_col="n_paths", choices=remaining_metrics, 
+                     display_mode=display_mode, reference_name=reference_name, 
+                     zoom_padding_pct=int(zoom_padding))
 # Tab 6: performance comparisons
 with tab_perf:
     st.subheader("Comparaison performance")
@@ -1138,7 +1136,15 @@ with tab_degree:
                     )
             deg_df = pd.DataFrame(rows)
             st.dataframe(deg_df, use_container_width=True)
-            plot_zoomable_multiline(deg_df.pivot(index="Degré", columns="Base", values=metric_deg).reset_index(), index_col="Degré", title=f"Graphe — {metric_deg}", display_mode=display_mode, reference_name=reference_name, zoom_padding_pct=int(zoom_padding))
+            deg_plot_df = deg_df.pivot(index="Degré", columns="Base", values=metric_deg).reset_index()
+            plot_zoomable_multiline(
+                deg_plot_df,
+                index_col="Degré",
+                title=f"Graphe — {metric_deg}",
+                display_mode=display_mode,
+                reference_name=reference_name,
+                zoom_padding_pct=int(zoom_padding),
+            )
 # Tab 8: valeur moyenne actualisée
 with tab_profile:
     st.subheader("Profil de valeur moyenne actualisée")
@@ -1197,4 +1203,11 @@ with tab_profile:
         )
         prof_df = discounted_option_profile(market, trade, params)
         st.dataframe(prof_df, use_container_width=True)
-        plot_metrics(prof_df, index_col="Pas", choices=graph_metrics, display_mode=display_mode, reference_name=reference_name, zoom_padding_pct=int(zoom_padding))
+        plot_metrics(
+            prof_df,
+            index_col="Pas",
+            choices=graph_metrics,
+            display_mode=display_mode,
+            reference_name=reference_name,
+            zoom_padding_pct=int(zoom_padding),
+        )
