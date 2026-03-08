@@ -12,7 +12,6 @@ from typing import Any, Dict, List, Optional, Literal
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
-
 # imports from project
 from pricing_monte_carlo.core_pricer import (
     AmericanAlgo,
@@ -58,7 +57,6 @@ def build_trade(
         ex_div_date=ex_div_date,
         div_amount=float(div_amount),
     )
-
 # pricing parameters
 def build_core_pricing_params(
     n_paths: int,
@@ -114,7 +112,6 @@ def benchmark_price(market: Market, trade: OptionTrade) -> tuple[float, str]:
         return_tree=False,
     )
     return float(out["tree_price"]), "Arbre trinomial"
-
 # for price in UI
 def one_run(market: Market, trade: OptionTrade, p: CorePricingParams) -> Dict[str, Any]:
     price, std, se, elapsed = core_price(market, trade, p)
@@ -129,7 +126,6 @@ def one_run(market: Market, trade: OptionTrade, p: CorePricingParams) -> Dict[st
         "IC95 haut": price + 1.96 * se,
         "Temps (s)": elapsed,
     }
-
 def _convergence_row(n: int, out: dict, ref: float, ref_name: str) -> dict:
     return {
         "n_paths": int(n),
@@ -142,7 +138,6 @@ def _convergence_row(n: int, out: dict, ref: float, ref_name: str) -> dict:
         "Benchmark": ref,
         "Nom benchmark": ref_name,
     }
-
 # function to run convergence
 def run_convergence(
     market: Market,
@@ -159,15 +154,12 @@ def run_convergence(
 ) -> pd.DataFrame:
     # convergence principal boucle: stock price/std/se/time for each N
     ref, ref_name = benchmark_price(market, trade)
-
-    rows = []
-    
+    rows = []    
     for n in grid:
         p = build_core_pricing_params(n, n_steps, seed, antithetic, method, algo, basis, degree)
         out = one_run(market, trade, p)
         rows.append(_convergence_row(int(n), out, float(ref), str(ref_name)))
     return pd.DataFrame(rows)
-
 # Paths
 def _paths_row(n_paths: int, out: Dict[str, Any]) -> Dict[str, Any]:
     return {
@@ -176,7 +168,6 @@ def _paths_row(n_paths: int, out: Dict[str, Any]) -> Dict[str, Any]:
         "Standard error": out["Standard error"],
         "Temps (s)": out["Temps (s)"],
     }
-
 # for the analysis with number of paths
 def run_paths_analysis(
     market: Market,
@@ -207,7 +198,6 @@ def run_paths_analysis(
         out = one_run(market, trade, p)
         rows.append(_paths_row(int(n_paths), out))
     return pd.DataFrame(rows)
-
 def add_inv_sqrt_n_fit(df: pd.DataFrame, metric: str) -> pd.DataFrame:
     # speed of convergence: metric in function of 1/sqrt(N), + droite fit.
     x = 1.0 / np.sqrt(pd.to_numeric(df["n_paths"], errors="coerce").to_numpy(dtype=float))
@@ -215,15 +205,12 @@ def add_inv_sqrt_n_fit(df: pd.DataFrame, metric: str) -> pd.DataFrame:
     mask = np.isfinite(x) & np.isfinite(y)
     x = x[mask]
     y = y[mask]
-
     if len(x) < 2:
         return pd.DataFrame({"1/sqrt(N)": x, metric: y, f"Fit {metric}": y})
     slope, intercept = np.polyfit(x, y, 1)
     fit_vals = slope * x + intercept
     out = pd.DataFrame({"1/sqrt(N)": x, metric: y, f"Fit {metric}": fit_vals})
     return out.sort_values("1/sqrt(N)").reset_index(drop=True)
-
-
 def _tree_reference(market: Market, trade: OptionTrade, tree_n: int) -> float: 
     out_tree = tree_price_from_mc(
         mc_market=market,
@@ -234,7 +221,6 @@ def _tree_reference(market: Market, trade: OptionTrade, tree_n: int) -> float:
         return_tree=False,
     )
     return float(out_tree["tree_price"])
-
 def _equivalent_rate(market: Market, trade: OptionTrade) -> tuple[float, float]:
     # Convert dividends in equivalent BS  
     T = max(float(trade.T), 1e-10)
@@ -243,10 +229,8 @@ def _equivalent_rate(market: Market, trade: OptionTrade) -> tuple[float, float]:
     pv_div = 0.0
     if t_div is not None and 0.0 < float(t_div) <= T and float(trade.div_amount) > 0.0:
         pv_div = float(trade.div_amount) * math.exp(-float(market.r) * float(t_div))
-
     q_equiv = q_cont + pv_div / max(float(market.S0) * T, 1e-10)
     return float(market.r) - q_equiv, T
-
 # convergence references
 def compute_reference_lines(
     market: Market,
@@ -257,7 +241,6 @@ def compute_reference_lines(
     """References de convergence: arbre + Black-Scholes taux équivalent."""
     tree_price = _tree_reference(market, trade, int(tree_n))
     r_equiv, T = _equivalent_rate(market, trade)
-
 # return BS, tree and equivalent rate
     bs_price_level = float(
         bs_price(
@@ -285,7 +268,6 @@ def discounted_option_profile(market: Market, trade: OptionTrade, p: CorePricing
     intrinsic = trade.payoff_vector(paths)
     discounts = np.exp(-float(market.r) * np.asarray(times, dtype=float))
     discounted = intrinsic * discounts[None, :]
-
     return pd.DataFrame(
         {
             "Pas": np.arange(len(times)),
@@ -294,7 +276,6 @@ def discounted_option_profile(market: Market, trade: OptionTrade, p: CorePricing
             "Standard deviation": discounted.std(axis=0, ddof=1),
         }
     )
-
 # display mode with multiple choices
 def _apply_display_mode(
     df: pd.DataFrame,
@@ -303,7 +284,6 @@ def _apply_display_mode(
     reference_name: Optional[str],
 ) -> pd.DataFrame:
     out = pd.DataFrame(df)
-
 # Option 1: ecart with a reference (to choose)
     if display_mode == "Écart à une référence":
         ref_col = reference_name if reference_name in series_cols else series_cols[0]
@@ -367,7 +347,6 @@ def plot_zoomable_multiline(
     # compute a dynamic padding to keep a zoomed chart readable even on flat series
     pad = span * (max(int(zoom_padding_pct), 0) / 100.0) if span > 0.0 else max(abs(y_max), 1.0) * 0.02
     spec = _vega_line_spec(index_col, title, y_min - pad, y_max + pad)
-
     st.vega_lite_chart(long_df, spec, use_container_width=True)
 # plot metrics
 def plot_metrics(
@@ -402,12 +381,10 @@ def plot_mean_bars_by_configuration(df: pd.DataFrame, metric_choices: List[str])
     if not metric_choices:
         st.info("Sélectionne au moins une métrique pour afficher les histogrammes.")
         return
-
     mean_df = df.groupby("Configuration", as_index=False)[metric_choices].mean(numeric_only=True)
     for metric in metric_choices:
         st.subheader(f"Moyenne par configuration — {metric}")
         st.bar_chart(mean_df.set_index("Configuration")[[metric]])
-
 # set up of the UI (title etc)
 st.set_page_config(page_title="Dashboard Monte Carlo", layout="wide")
 st.title("Dashboard Monte Carlo — analyses")
@@ -432,7 +409,6 @@ with st.sidebar:
 if maturity_date <= pricing_date:
     st.error("La maturité doit être > date de pricing.")
     st.stop()
-
 market = Market(S0=float(s0), r=float(r), sigma=float(sigma))
 # name of all the tabs (onglets) whiwh appears in streamlit
 tab_labels = [
@@ -446,7 +422,6 @@ tab_labels = [
     tab_conv_delta, tab_perf,
     tab_degree, tab_profile,
 ) = st.tabs(tab_labels)
-
 with tab_price:
     # tab 1 = pricing 
     st.subheader("Prix principal")
@@ -455,7 +430,6 @@ with tab_price:
     method_price = c2.selectbox("Simulation", ["vector", "scalar"], index=0)
     algo_price = c3.selectbox("Algorithme américain", ["ls", "naive"], index=0)
     anti_price = c4.toggle("Antithétique", value=True)
-
     d1, d2, d3, d4 = st.columns(4)
     n_paths_price = d1.number_input("Nombre de chemins", min_value=100, value=40000, step=1000)
     n_steps_price = d2.number_input("Nombre de pas", min_value=5, value=120, step=5)
@@ -507,7 +481,6 @@ with tab_greeks:
     n_steps_greeks = h2.number_input("Nombre de pas", min_value=10, value=100, step=10, key="g_ns")
     seed_greeks = h3.number_input("Seed", min_value=0, value=127, step=1, key="g_seed")
     tree_n = h4.number_input("N benchmark arbre", min_value=50, value=250, step=50, key="g_tree")
-
     e1, e2 = st.columns(2)
     eps_spot = e1.number_input("Epsilon spot (ΔS)", min_value=0.0001, value=0.5, step=0.1, format="%.4f")
     eps_vol = e2.number_input("Epsilon vol (Δσ)", min_value=0.0001, value=0.01, step=0.005, format="%.4f")
@@ -545,7 +518,6 @@ with tab_greeks:
             tree_N=int(tree_n),
         )
         elapsed = time.time() - t0
-
         keys = sorted(set(mc_greeks.keys()) | set(ref_greeks.keys()))
         rows = []
         # greeks for MC and bench 
@@ -796,7 +768,6 @@ with tab_conv_delta:
     min_paths = c2.number_input("Min paths", min_value=100, value=1000, step=100, key="cd_min")
     max_paths = c3.number_input("Max paths", min_value=500, value=30000, step=500, key="cd_max")
     n_points = c4.slider("Nombre de points", min_value=3, max_value=10, value=6, key="cd_pts")
-
     d1, d2, d3, d4 = st.columns(4)
     n_steps = d1.number_input("Pas MC", min_value=10, value=100, step=10, key="cd_steps")
     seed = d2.number_input("Seed", min_value=0, value=127, step=1, key="cd_seed")
@@ -837,7 +808,6 @@ with tab_conv_delta:
             ex_div_date=ex_div_date if has_div else None,
             div_amount=float(div_amount) if has_div else 0.0,
         )
-
         rows = []
         for n in grid:
             # parameters chose in the tab
@@ -972,7 +942,6 @@ with tab_perf:
             .mean()
         )
         st.dataframe(method_mean, use_container_width=True)
-
         st.markdown("**Barres de moyenne (1 seule série)**")
         plot_mean_bars_by_configuration(perf_df, graph_metrics)
     # button to press to run study by number of paths
