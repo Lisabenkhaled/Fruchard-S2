@@ -117,7 +117,7 @@ def run_pricer() -> dict[str, Any]:
     _ = (arbre_stock, arbre_proba, arbre_option, wb, sheet, rho, lam, exdivdate)
     # Defensive check: ensure time-to-maturity is positive to avoid math domain errors
     if T is None or T <= 0:
-        raise ValueError(f"Temps à maturité invalide T={T}. Vérifiez que la date de maturité est postérieure à la date d'évaluation.")
+        raise ValueError(f"Temps à maturité invalide T={T}. Vérifiez la date de maturité.")
 
     # Choix de la méthode d’arbre
     if method == "Backward":
