@@ -4,42 +4,53 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
+# imports
 from core_pricer import input_parameters
 from analysis.greeks import compute_method_greeks
 from utils.utils_bs import bs_greeks
 from utils.utils_sheet import ensure_sheet
+# constants
+HEADER_ROW = 3
+DATA_START_ROW = 4
+HEADER_START_CELL = f"A{HEADER_ROW}"
+DATA_START_CELL = f"A{DATA_START_ROW}"
 
 
-def strike_test():
-    (market, option, N, exercise, method, optimize, threshold,
-     arbre_stock, arbre_proba, arbre_option, wb, sheet,
-     S0, K, r, sigma, T, rho, lam, is_call, exdivdate) = input_parameters()
+def _set_status(app, text):
+    try:
+        app.status_bar = text
+    except Exception:
+        pass
+# Headers
+def _build_headers():
+    return [
+        "Strike",
+        "Delta Tree", "Delta BS",
+        "Gamma Tree", "Gamma BS",
+        "Vega Tree", "Vega BS",
+        "Theta Tree", "Theta BS",
+        "Rho Tree", "Rho BS",
+        "Vanna Tree", "Vanna BS",
+        "Vomma Tree", "Vomma BS"
+    ]
+
+
+def _compute_data_rows(market, option, N, exercise, 
+                       optimize, threshold, S0, r, sigma, T, is_call, app):
 
     K_values = np.linspace(int(0.9 * S0), int(1.1 * S0), 20)
     data = []
 
-    # -- Status bar (réf. au même App Excel)
-    app = wb.app
-
     for k in K_values:
-        # Début du pricing pour ce strike : 0/N
-        try:
-            app.status_bar = f"Strike : {float(k):.4f} | N = {int(N)}"
-        except Exception:
-            pass
-
+        _set_status(app, f"Strike : {float(k):.4f} | N = {int(N)}")
+# greeks and bs values
         option.K = k
         tree_greeks = compute_method_greeks(market, option, N, exercise, optimize, threshold, "backward")
         bs_vals = bs_greeks(S0, k, r, sigma, T, is_call)
 
-        # Fin du pricing pour ce strike : N/N
-        try:
-            app.status_bar = f"Strike : {float(k):.4f} | {int(N)}/{int(N)}"
-        except Exception:
-            pass
+        _set_status(app, f"Strike : {float(k):.4f} | {int(N)}/{int(N)}")
 
-        # >>> NE RIEN CHANGER ICI : structure intacte (15 colonnes)
+        # structure intacte (15 colonnes)
         data.append([
             k,
             tree_greeks["Delta"], bs_vals["Delta"],
@@ -51,33 +62,11 @@ def strike_test():
             tree_greeks["Vomma"], bs_vals["Vomma"]
         ])
 
-    # Réinitialise la barre d’état
-    try:
-        app.status_bar = False
-    except Exception:
-        pass
-
-
-    data = [[round(x, 4) if isinstance(x, (float, np.floating)) else x for x in row] for row in data]
-
-    sheet_name = "Greeks Strike"
-    sh = ensure_sheet(wb, sheet_name)
-
-    headers = [
-        "Strike",
-        "Delta Tree", "Delta BS",
-        "Gamma Tree", "Gamma BS",
-        "Vega Tree", "Vega BS",
-        "Theta Tree", "Theta BS",
-        "Rho Tree", "Rho BS",
-        "Vanna Tree", "Vanna BS",
-        "Vomma Tree", "Vomma BS"
-    ]
-
-    sh.range("A3").value = headers
-    sh.range("A4").value = data
-    #sh.range("A4").expand().number_format = "0.0000"
-
+ 
+    rounded_data = [[round(x, 4) if isinstance(x, (float, np.floating)) else x for x in row] for row in data]
+    return K_values, rounded_data
+# Charts
+def _add_charts(sh, data, K_values):
     chart_specs = [
         ("Delta", 2, 3, "green", 0, 0),
         ("Theta", 8, 9, "red", 1, 0),
@@ -94,7 +83,7 @@ def strike_test():
     y_spacing = 60
     x_start = 1050
     y_start = 60
-
+# plots vs Strike
     for name, col_tree, col_bs, color, grid_x, grid_y in chart_specs:
         fig, ax = plt.subplots(figsize=(6.5, 3.5))
         tree_vals = [row[col_tree - 1] for row in data]
@@ -116,17 +105,31 @@ def strike_test():
                         left=left, top=top, width=chart_width, height=chart_height)
         plt.close(fig)
 
-    sh.autofit()
-    
-    try:
-        wb.app.status_bar = False
-    except Exception:
-        pass
+# Strikes tests
+def strike_test():
+    (market, option, N, exercise, method, optimize, threshold,
+     arbre_stock, arbre_proba, arbre_option, wb, sheet,
+     S0, K, r, sigma, T, rho, lam, is_call, exdivdate) = input_parameters()
 
+    app = wb.app
+    headers = _build_headers()
+    K_values, data = _compute_data_rows(
+        market, option, N, exercise, optimize, threshold, S0, r, sigma, T, is_call, app
+    )
+
+    sheet_name = "Greeks Strike"
+    sh = ensure_sheet(wb, sheet_name)
+    sh.range(HEADER_START_CELL).value = headers
+    sh.range(DATA_START_CELL).value = data
+    # sh.range(DATA_START_CELL).expand().number_format = "0.0000"
+
+    _add_charts(sh, data, K_values)
+# Autofit
+    sh.autofit()
+    _set_status(app, False)
 
 def run_test_greeks_strike():
     strike_test()
-
 
 if __name__ == "__main__":
     run_test_greeks_strike()

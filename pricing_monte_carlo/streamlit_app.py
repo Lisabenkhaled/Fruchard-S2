@@ -33,6 +33,7 @@ from pricing_monte_carlo.model.path_simulator import (
 )
 from pricing_monte_carlo.utils.utils_bs import bs_price
 from pricing_tree.adaptateur import tree_price_from_mc
+from pricing_monte_carlo.avg_value import _build_value_table, _discount_vector, DiagnosticContext, PricerConfig
 
 # Display options
 DisplayMode = Literal["Prix direct", "Écart à une référence", 
@@ -279,18 +280,29 @@ def _simulate_paths(market: Market, trade: OptionTrade, p: CorePricingParams) ->
     return simulate_gbm_paths_scalar(market, trade, p.n_paths, p.n_steps, seed=p.seed, 
                                      antithetic=p.antithetic)
 
-# discounted option
+# discounted option price profile (node values discounted back to t=0)
 def discounted_option_profile(market: Market, trade: OptionTrade, p: CorePricingParams) -> pd.DataFrame:
-    times, paths = _simulate_paths(market, trade, p)  
-    intrinsic = trade.payoff_vector(paths)
-    discounts = np.exp(-float(market.r) * np.asarray(times, dtype=float))
-    discounted = intrinsic * discounts[None, :]
+    times, paths = _simulate_paths(market, trade, p)
+    context = DiagnosticContext(
+        market=market,
+        trade=trade,
+        option_type="Call" if trade.is_call else "Put",
+        exercise_label="American" if trade.exercise == "american" else "European",
+    )
+    value_table = _build_value_table(
+        np.asarray(paths, dtype=float),
+        context,
+        PricerConfig(n_steps=int(p.n_steps), degree=int(p.degree)),
+    )
+    # discounts
+    discounts = _discount_vector(float(market.r), float(trade.T), int(p.n_steps))
+    discounted_prices = value_table * discounts[None, :]
     return pd.DataFrame(
         {
             "Pas": np.arange(len(times)),
             "Temps (années)": np.asarray(times, dtype=float),
-            "Moyenne actualisée": discounted.mean(axis=0),
-            "Standard deviation": discounted.std(axis=0, ddof=1),
+            "Prix moyen actualisé": discounted_prices.mean(axis=0),
+            "Standard deviation": discounted_prices.std(axis=0, ddof=1)
         }
     )
 
@@ -1252,8 +1264,8 @@ with tab_profile:
     # choose what to display
     graph_metrics = st.multiselect(
         "Métriques à tracer",
-        ["Moyenne actualisée", "Standard deviation"],
-        default=["Moyenne actualisée", "Standard deviation"],
+        ["Prix moyen actualisé", "Standard deviation"],
+        default=["Prix moyen actualisé", "Standard deviation"],
         key="pr_plot",
     )
     display_mode = st.selectbox(
@@ -1266,7 +1278,7 @@ with tab_profile:
     # choose a reference
     reference_name = st.selectbox(
         "Référence (si mode = Écart à une référence)",
-        ["Moyenne actualisée", "Standard deviation"],
+        ["Prix moyen actualisé", "Standard deviation"],
         index=0,
         key="pr_reference",
     )
@@ -1298,7 +1310,7 @@ with tab_profile:
         )
         prof_df = discounted_option_profile(market, trade, params)
         st.dataframe(prof_df, use_container_width=True)
-        
+
         plot_metrics(
             prof_df,
             index_col="Pas",
