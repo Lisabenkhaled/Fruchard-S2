@@ -6,37 +6,33 @@ import numpy as np
 from .utils.utils_grecs import OneDimDerivative
 from .pricer import price_tree_backward_direct
 
+# get price function
 def _get_price(market, option, N, exercise, optimize, threshold):
-    out = price_tree_backward_direct(
-        S0=market.S0,
-        r=market.r,
-        sigma=market.sigma,
-        K=option.K,
-        is_call=option.is_call,
-        exercise=exercise,
-        pricing_date=market.pricing_date,
-        maturity_date=market.T,
+    out = price_tree_backward_direct(S0=market.S0,
+        r=market.r,sigma=market.sigma,K=option.K,
+        is_call=option.is_call,exercise=exercise,
+        pricing_date=market.pricing_date,maturity_date=market.T,
         N=N,
         ex_div_date=None if not market.dividends else market.dividends[0][0],
         div_amount=0.0 if not market.dividends else market.rho * market.S0,
-        optimize=optimize,
-        threshold=threshold,
-        return_tree=False
-    )
+        optimize=optimize,threshold=threshold, return_tree=False    )
     return float(out["tree_price"])
 
+# greek wrapper
 def _greek_wrapper(params, x: float) -> float:
     market, option, N, exercise, optimize, threshold, target = params
     m = copy.deepcopy(market)
     setattr(m, target, x)
     return _get_price(m, option, N, exercise, optimize, threshold)
 
+# finite differences
 def _finite_diff_2d(market, option, N, exercise, optimize, threshold, base_price):
 
     S0, sigma0 = market.S0, market.sigma
     hS = 0.01
     hSigma = 0.01
-
+    
+    # shift
     def price_shift(dS=0.0, dSigma=0.0):
         m = copy.deepcopy(market)
         m.S0 = S0 + dS
@@ -48,6 +44,7 @@ def _finite_diff_2d(market, option, N, exercise, optimize, threshold, base_price
     p_down_up   = price_shift(-hS, +hSigma)
     p_down_down = price_shift(-hS, -hSigma)
 
+    # vanna
     vanna = (p_up_up - p_up_down - p_down_up + p_down_down) / (4 * hS * hSigma)
 
     p_sig_up   = price_shift(0.0, +hSigma)
@@ -59,21 +56,15 @@ def _finite_diff_2d(market, option, N, exercise, optimize, threshold, base_price
 
     return float(vanna) / 100.0, float(vomma) / 10000.0
 
-def compute_tree_greeks_engine(
-    market,
-    option,
-    N,
-    exercise,
-    optimize=False,
-    threshold=1e-14,
-):
+# tree greeks
+def compute_tree_greeks_engine(market, option,N,
+    exercise,optimize=False,threshold=1e-14):
     base_price = _get_price(market, option, N, exercise, optimize, threshold)
 
-    hS = max(1e-4, 0.01 * market.S0)
-    hSigma = 0.01
-    hR = 1e-4
-    hT = 1.0 / 365.0
+    hS = max(1e-4, 0.01 * market.S0);hSigma = 0.01
+    hR = 1e-4;hT = 1.0 / 365.0
 
+    # les dérivées
     dS = OneDimDerivative(_greek_wrapper,
         (market, option, N, exercise, optimize, threshold, "S0"), shift=hS)
     dSigma = OneDimDerivative(_greek_wrapper,
@@ -83,6 +74,7 @@ def compute_tree_greeks_engine(
     dT = OneDimDerivative(_greek_wrapper,
         (market, option, N, exercise, optimize, threshold, "T"), shift=hT)
 
+    # greeks calcul
     Delta = dS.first(market.S0)
     Gamma = dS.second(market.S0)
     Vega  = dSigma.first(market.sigma) / 100.0
@@ -93,12 +85,5 @@ def compute_tree_greeks_engine(
         market, option, N, exercise, optimize, threshold, base_price
     )
 
-    return {
-        "Delta": Delta,
-        "Gamma": Gamma,
-        "Vega": Vega,
-        "Theta": Theta,
-        "Rho": Rho,
-        "Vanna": Vanna,
-        "Vomma": Vomma,
-    }
+    return {"Delta": Delta, "Gamma": Gamma,"Vega": Vega,
+        "Theta": Theta,"Rho": Rho,"Vanna": Vanna,"Vomma": Vomma}
