@@ -1,13 +1,20 @@
 # pricing_tree/greeks_engine.py
-
+from __future__ import annotations
 import copy
 import numpy as np
-
+from typing import Any
 from .utils.utils_grecs import OneDimDerivative
 from .pricer import price_tree_backward_direct
+from .models.market import Market
+from .models.option_trade import Option
+from .utils.utils_grecs import OneDimDerivative
 
+GreekParams = tuple[Market, Option, int, str, bool, float, str]
 # get price function
-def _get_price(market, option, N, exercise, optimize, threshold):
+def _get_price(
+    market: Market,option: Option,
+    N: int,exercise: str,
+    optimize: bool,threshold: float) -> float:
     out = price_tree_backward_direct(S0=market.S0,
         r=market.r,sigma=market.sigma,K=option.K,
         is_call=option.is_call,exercise=exercise,
@@ -19,21 +26,24 @@ def _get_price(market, option, N, exercise, optimize, threshold):
     return float(out["tree_price"])
 
 # greek wrapper
-def _greek_wrapper(params, x: float) -> float:
+def _greek_wrapper(params: GreekParams, x: float) -> float:
     market, option, N, exercise, optimize, threshold, target = params
     m = copy.deepcopy(market)
     setattr(m, target, x)
     return _get_price(m, option, N, exercise, optimize, threshold)
 
 # finite differences
-def _finite_diff_2d(market, option, N, exercise, optimize, threshold, base_price):
+def _finite_diff_2d(
+    market: Market,option: Option,
+    N: int,exercise: str,optimize: bool,
+    threshold: float, base_price: float) -> tuple[float, float]:
 
     S0, sigma0 = market.S0, market.sigma
     hS = 0.01
     hSigma = 0.01
     
     # shift
-    def price_shift(dS=0.0, dSigma=0.0):
+    def price_shift(dS: float = 0.0, dSigma: float = 0.0) -> float:
         m = copy.deepcopy(market)
         m.S0 = S0 + dS
         m.sigma = max(1e-6, sigma0 + dSigma)
@@ -57,8 +67,10 @@ def _finite_diff_2d(market, option, N, exercise, optimize, threshold, base_price
     return float(vanna) / 100.0, float(vomma) / 10000.0
 
 # tree greeks
-def compute_tree_greeks_engine(market, option,N,
-    exercise,optimize=False,threshold=1e-14):
+def compute_tree_greeks_engine(
+    market: Market,option: Option,
+    N: int,exercise: str,
+    optimize: bool = False,threshold: float = 1e-14) -> dict[str, Any]:
     base_price = _get_price(market, option, N, exercise, optimize, threshold)
 
     hS = max(1e-4, 0.01 * market.S0);hSigma = 0.01

@@ -4,50 +4,35 @@ import os
 import xlwings as xw
 import datetime as dt
 
+# imports from project
 from models.market import Market
 from models.option_trade import Option
 from models.tree import TrinomialTree
 from utils.utils_bs import bs_price
 from utils.utils_date import datetime_to_years
 from models.backward_pricing import price_backward
-from models.recursive_pricing import price_recursive, clear_recursive_cache  # 👈 added import
+from models.recursive_pricing import price_recursive, clear_recursive_cache  
 
-
-# -------------------------------------------------------------------------
 # 1. Lecture des paramètres dans Excel
-# -------------------------------------------------------------------------
-def input_parameters():
-    """
-    Lit les paramètres du pricer depuis Excel.
-    Retourne les objets nécessaires pour le pricing.
-    """
+
+def input_parameters() -> tuple[
+    Market,Option,int,str,str,str,float,bool,bool,bool,Any,
+    Any,float,float,float,float,float,float,float,bool,float | None]:
+    """Lit les paramètres du pricer et retourne les objets de travail."""
 
     # Paramètres de marché 
-    S0 = 100
-    r = 0.05
-    sigma = 0.3
-    rho = 0.0
-    lam = 0.0
-    exdiv_raw = None
+    S0 = 100;r = 0.05;sigma = 0.3;rho = 0.0;lam = 0.0;exdiv_raw = None
 
     # Paramètres de l’option
-    K = 102
-    pricing_date = dt.date(2026, 2, 18)
-    maturity_date = dt.date(2027, 2, 18)
-    is_call = True
-    exercise = "american"
+    K = 102;pricing_date = dt.date(2026, 2, 18); maturity_date = dt.date(2027, 2, 18)
+    is_call = True;exercise = "american"
 
     # Paramètres de l’arbre 
     # Valeur par défaut plus petite pour tests rapides. Augmentez si vous voulez plus de précision.
-    N = 10000
-    method = "Backward"
-    optimize = "non"
-    threshold = 0.00000000000001
+    N = 10000;method = "Backward";optimize = "non";threshold = 0.00000000000001
 
     # Options d’affichage
-    arbre_stock = False
-    arbre_proba = False
-    arbre_option = False
+    arbre_stock = False;arbre_proba = False;arbre_option = False
 
     # Conversion des dates
     T = datetime_to_years(maturity_date, pricing_date)
@@ -55,26 +40,19 @@ def input_parameters():
 
     # Création des objets Market et Option
     market = Market(
-        S0=S0,
-        r=r,
-        sigma=sigma,
-        T=T,
-        exdivdate=exdivdate,
-        pricing_date=pricing_date,
-        rho=rho,
-        lam=lam
-    )
+        S0=S0,r=r,sigma=sigma, T=T,exdivdate=exdivdate,
+        pricing_date=pricing_date, rho=rho,lam=lam)
     option = Option(K=K, is_call=is_call)
 
     return (market, option, N, exercise, method, optimize, threshold,
             arbre_stock, arbre_proba, arbre_option, None, None,
             S0, K, r, sigma, T, rho, lam, is_call, exdivdate)
 
-
-# -------------------------------------------------------------------------
 # 2. Backward pricing
-# -------------------------------------------------------------------------
-def run_backward_pricing(market, option, N, exercise, optimize, threshold):
+
+def run_backward_pricing(market: Market,
+    option: Option,N: int,exercise: str,optimize: str | bool,
+    threshold: float) -> tuple[float, float, TrinomialTree]:
     """Calcule le prix de l’option via la méthode backward."""
     start = time.time()
 
@@ -89,11 +67,11 @@ def run_backward_pricing(market, option, N, exercise, optimize, threshold):
     elapsed = time.time() - start
     return price, elapsed, tree
 
-
-# -------------------------------------------------------------------------
 # 3. Recursive pricing (with cache clearing)
-# -------------------------------------------------------------------------
-def run_recursive_pricing(market, option, N, exercise, optimize, threshold):
+
+def run_recursive_pricing( market: Market,
+    option: Option,N: int,exercise: str,optimize: str | bool,
+    threshold: float) -> tuple[float, float, TrinomialTree]:
     """
     Calcule le prix de l’option via la méthode récursive.
     Nettoie le cache après le pricing pour éviter les interférences
@@ -116,22 +94,19 @@ def run_recursive_pricing(market, option, N, exercise, optimize, threshold):
 
     return price, elapsed, tree
 
-
-# -------------------------------------------------------------------------
 # 4. Black-Scholes reference
-# -------------------------------------------------------------------------
-def run_black_scholes(S0, K, r, sigma, T, is_call):
+
+def run_black_scholes(S0: float,
+    K: float,r: float,sigma: float,
+    T: float,is_call: bool) -> tuple[float, float]:
     """Calcule le prix Black-Scholes (sans dividende explicite ici)."""
     start = time.time()
     price = bs_price(S0, K, r, sigma, T, is_call)
     elapsed = time.time() - start
     return price, elapsed
 
-
-# -------------------------------------------------------------------------
-# 5. Main pricer
-# -------------------------------------------------------------------------
-def run_pricer():
+# Main pricer
+def run_pricer() -> dict[str, Any]:
     """
     Exécute le pricer complet selon la méthode choisie (Backward ou Recursive)
     et compare au modèle de Black-Scholes si applicable.
@@ -139,7 +114,7 @@ def run_pricer():
     (market, option, N, exercise, method, optimize, threshold,
      arbre_stock, arbre_proba, arbre_option, wb, sheet,
      S0, K, r, sigma, T, rho, lam, is_call, exdivdate) = input_parameters()
-
+    _ = (arbre_stock, arbre_proba, arbre_option, wb, sheet, rho, lam, exdivdate)
     # Defensive check: ensure time-to-maturity is positive to avoid math domain errors
     if T is None or T <= 0:
         raise ValueError(f"Temps à maturité invalide T={T}. Vérifiez que la date de maturité est postérieure à la date d'évaluation.")

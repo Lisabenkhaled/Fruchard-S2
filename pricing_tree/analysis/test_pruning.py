@@ -15,7 +15,7 @@ from core_pricer import (
 from utils.utils_sheet import ensure_sheet
 
 # write results
-def _write_results_table(sheet_prune: Any, seuil_values: list[float], 
+def _write_results_table(sheet_prune: object, seuil_values: list[float], 
                          prices: list[float], times: list[float]) -> None:
     headers: list[str] = ["Seuil", "Prix Tree", "Durée (s)"]
     table_start_col = "A"
@@ -23,10 +23,11 @@ def _write_results_table(sheet_prune: Any, seuil_values: list[float],
     data_row = header_row + 1
 
     sheet_prune.range(f"{table_start_col}{header_row}:C{header_row}").value = headers
-    sheet_prune.range(f"{table_start_col}{data_row}").value = np.column_stack((seuil_values, prices, times))
+    sheet_prune.range(f"{table_start_col}{data_row}").value = np.column_stack(
+        (seuil_values, prices, times))
 
 # price chart
-def _add_price_chart(sheet_prune: Any,seuil_values: list[float],
+def _add_price_chart(sheet_prune: object,seuil_values: list[float],
     prices: list[float],baseline_price: float,left: float,
     top: float,width: int,height: int) -> None:
 
@@ -48,7 +49,7 @@ def _add_price_chart(sheet_prune: Any,seuil_values: list[float],
 
 # time chart
 def _add_time_chart(
-    sheet_prune: Any,seuil_values: list[float],times: list[float],
+    sheet_prune: object,seuil_values: list[float],times: list[float],
     baseline_time: float,left: float,top: float,width: int,
     height: int) -> None:
     fig2, ax2 = plt.subplots(figsize=(7, 4.5))
@@ -67,43 +68,60 @@ def _add_time_chart(
     sheet_prune.pictures.add(fig2, name="Graph_Temps", update=True, left=left, top=top, width=width, height=height)
     plt.close(fig2)
 
-# test pruning
-def prune_test()->None:
-    # Récupération standard des paramètres + workbook
-    (market, option, N, exercise, method, optimize, threshold,
-     arbre_stock, arbre_proba, arbre_option, wb, sheet,
-     S0, K, r, sigma, T, rho, lam, is_call, exdivdate) = input_parameters()
-
-    sheet_prune = ensure_sheet(wb, "Test Pruning")
-
-    # Seuils: 1e-3 -> 1e-15 inclus
-    seuil_values = [10.0 ** (-k) for k in range(3, 16)]
+# pruning series
+def _compute_pruning_series(
+    app: object,market: object,option: object,
+    N: int,exercise: str,optimize: str | bool,
+    seuil_values: list[float]) -> tuple[list[float], list[float], float, float]:
 
     prices: list[float] = []
     times: list[float] = []
+    total = len(seuil_values)
+
+    baseline_price, baseline_time, _ = run_backward_pricing(
+        market, option, N, exercise, optimize=False, threshold=0.0
+    )
+    # backward 
+    for index, seuil in enumerate(seuil_values, start=1):
+        try:
+            app.status_bar = f"Pruning: seuil={seuil:.1e} | {index}/{total}"
+        except Exception:
+            pass
+
+        price_t, elapsed_t, _ = run_backward_pricing(
+            market, option, N, exercise, optimize, threshold=seuil
+        )
+        prices.append(price_t)
+        times.append(elapsed_t)
+
+    return prices, times, baseline_price, baseline_time
+
+# clear existing charts
+def _clear_existing_charts(sheet_prune: object) -> None:
+    for picture in list(sheet_prune.pictures):
+        if picture.name in ["Graph_Prix", "Graph_Temps"]:
+            picture.delete()
+
+#prune test
+def prune_test() -> None:
+    (market,option,N,exercise,method,optimize,threshold,
+        arbre_stock,arbre_proba,arbre_option,wb,sheet,
+        S0,K,r,sigma,T,rho,lam,is_call,exdivdate) = input_parameters()
+
+    _ = (method,threshold,arbre_stock,arbre_proba,arbre_option,
+        sheet,S0,K,r, sigma,T,rho,lam,is_call,exdivdate)
+
+    sheet_prune = ensure_sheet(wb, "Test Pruning")
+    seuil_values = [10.0 ** (-k) for k in range(3, 16)]
 
     app = wb.app
     app.screen_updating = False
-    total = len(seuil_values)
+ 
     try:
         # Calcul du prix et temps sans pruning (baseline)
-        baseline_price, baseline_time, _ = run_backward_pricing(
-            market, option, N, exercise, optimize=False, threshold=0.0
-        )
+        prices, times, baseline_price, baseline_time = _compute_pruning_series(
+            app,market,option,N,exercise,optimize,seuil_values)
 
-        # Boucle sur les seuils 
-        for i, s in enumerate(seuil_values, start=1):
-            # Status bar 
-            try:
-                app.status_bar = f"Pruning: seuil={s:.1e} | {i}/{total}"
-            except Exception:
-                pass
-
-            price_t, t, _ = run_backward_pricing(
-                market, option, N, exercise, optimize, threshold=s
-            )
-            prices.append(price_t)
-            times.append(t)
     finally:
         # Toujours remettre la status bar
         try:
@@ -114,26 +132,15 @@ def prune_test()->None:
 
     # Tableau résultats 
     _write_results_table(sheet_prune, seuil_values, prices, times)
-    
-    # Nettoyage anciens graphiques 
-    for pic in list(sheet_prune.pictures):
-        if pic.name in ["Graph_Prix", "Graph_Temps"]:
-            pic.delete()
 
-    # Coordonnées depuis F3 
-    chart_anchor_col = "F"
-    chart_anchor_row = 3
-    anchor: Any = sheet_prune.range(f"{chart_anchor_col}{chart_anchor_row}")
+    _clear_existing_charts(sheet_prune)
 
-    left = anchor.left
-    top1 = anchor.top
-    width = 640
-    height = 360
-    gap = 20
-    top2 = top1 + height + gap
+    anchor = sheet_prune.range("F3")
 
+    left = anchor.left; top1 = anchor.top;width = 640
+    height = 360;top2 = top1 + height + 20
     _add_price_chart(sheet_prune, seuil_values, prices, baseline_price, left, top1, width, height)
     _add_time_chart(sheet_prune, seuil_values, times, baseline_time, left, top2, width, height)
-    
+
 if __name__ == "__main__":
     prune_test()
