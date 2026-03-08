@@ -168,7 +168,7 @@ def main() -> None:
     )
 
     # Increasing N to check convergence
-    n_paths_list = [1_000, 2_000, 5_000, 10_000, 20_000, 50_000]
+    n_paths_list = [1_000, 2_000, 5_000, 10_000, 15_000, 20_000, 50_000, 100_000]
 
     # Use many seeds to reduce noise (mean estimate becomes smoother)
     seeds = list(range(1, 51))  # K=50 seeds
@@ -178,8 +178,8 @@ def main() -> None:
         trade=trade,
         n_paths_list=n_paths_list,
         seeds=seeds,
-        n_steps_mc=300,
-        tree_steps=300,
+        n_steps_mc=100,
+        tree_steps=100,
         antithetic=True,
         method_mc="vector",
         basis="laguerre",

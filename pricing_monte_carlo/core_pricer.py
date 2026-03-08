@@ -149,28 +149,28 @@ def core_price(market: Market, trade: OptionTrade, p: CorePricingParams) -> Tupl
 if __name__ == "__main__":
     import datetime as dt
 
-    pricing_date = dt.date(2026, 2, 26)
-    maturity_date = dt.date(2027, 4, 26)
+    pricing_date = dt.date(2026, 3, 1)
+    maturity_date = dt.date(2026, 12, 25)
 
-    market = Market(S0=100, r=0.04, sigma=0.25)
+    market = Market(S0=100, r=0.10, sigma=0.20)
 
     # Example 1: Vanilla American (LS)
     # Option
     trade_vanilla = OptionTrade(
         strike=100.0,
         is_call=True,
-        exercise="american",
+        exercise="european",
         pricing_date=pricing_date,
         maturity_date=maturity_date,
         q=0.0,
-        ex_div_date=dt.date(2026, 5, 29),
-        div_amount=3.0,
+        ex_div_date=dt.date(2026, 11, 30),
+        div_amount=0.0,
     )
 
     # Parameters
     params_vanilla = CorePricingParams(
-        n_paths=100_000,
-        n_steps=100,
+        n_paths=100,
+        n_steps=10,
         seed=1,
         antithetic=True,
         method="vector",

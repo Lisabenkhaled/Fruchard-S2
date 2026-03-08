@@ -135,26 +135,26 @@ def main() -> None:
     """Example usage"""
     import datetime as dt
 
-    pricing_date = dt.date(2026, 2, 18)
-    maturity_date = dt.date(2027, 2, 18)
+    pricing_date = dt.date(2026, 3, 1)
+    maturity_date = dt.date(2026, 12, 25)
 
-    market = Market(S0=100.0, r=0.05, sigma=0.30)
+    market = Market(S0=100.0, r=0.10, sigma=0.20)
 
     trade = OptionTrade(
-        strike=102.0,
+        strike=100.0,
         is_call=True,
         exercise="european",
         pricing_date=pricing_date,
         maturity_date=maturity_date,
         q=0.0,
-        ex_div_date=None,
+        ex_div_date=dt.date(2026, 11, 30),
         div_amount=0.0,
     )
 
-    n_list = [500, 1000, 2000, 5000, 10000, 15000, 20000]
+    n_list = [1000, 2000, 5000, 10000, 12000, 15000, 20000, 50000]
 
     # Many seeds for stable mean error estimates
-    seeds = list(range(1, 1001))
+    seeds = list(range(1, 501))
 
     convergence_rate_plot(
         market=market,

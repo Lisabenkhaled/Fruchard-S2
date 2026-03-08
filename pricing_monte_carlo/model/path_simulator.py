@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import Optional, Tuple
+import math
 import numpy as np
 from model.market import Market
 from model.option import OptionTrade
@@ -9,41 +10,29 @@ from model.brownian import BrownianMotion
 LAST_TIMES: Optional[np.ndarray] = None
 LAST_PATHS: Optional[np.ndarray] = None
 
+_MIN_PRICE = 1e-12
+
+
 def _step_times(T: float, n_steps: int) -> np.ndarray:
     """Create the simulation time grid"""
     return np.linspace(0.0, T, n_steps + 1)
 
+
 def _ex_div_index(trade: OptionTrade, dt: float, n_steps: int) -> Optional[int]:
-    """
-    Determine the simulation step corresponding to the ex-dividend date
-    Returns None if no dividend exists
-    """
+    """Determine the simulation step corresponding to the ex-dividend date"""
     ex_time = trade.ex_div_time()
-    # No dividend case
     if ex_time is None or float(trade.div_amount) == 0.0:
         return None
-    # Map dividend time to closest future grid step
-    j_div = int(np.ceil(float(ex_time) / dt))
+    j_div = int(math.ceil(float(ex_time) / dt))
     return max(0, min(n_steps, j_div))
 
-def _apply_dividend_scalar(S: float, D: float) -> float:
-    """Apply a discrete dividend to a single price"""
-    return max(S - D, 1e-12) if D != 0.0 else S
 
 def _apply_dividend_at_step(paths: np.ndarray, j_div: Optional[int], D: float) -> None:
     """Apply dividend adjustment to all paths at the dividend step"""
     if j_div is None or D == 0.0:
         return
-    j = int(j_div)
-    # Subtract dividend and prevent negative prices
-    paths[:, j] = np.maximum(paths[:, j] - D, 1e-12)
+    paths[:, int(j_div)] = np.maximum(paths[:, int(j_div)] - D, _MIN_PRICE)
 
-def _gbm_returns(r: float, q: float, sigma: float, dt: float, dW: np.ndarray) -> np.ndarray:
-    """
-    Compute multiplicative returns for GBM
-    """
-    drift_dt = (r - q - 0.5 * sigma * sigma) * dt
-    return np.exp(drift_dt + sigma * dW)
 
 def _market_trade_params(market: Market, trade: OptionTrade) -> Tuple[float, float, float, float, float]:
     """Extract numerical parameters from market and trade objects"""
@@ -55,115 +44,215 @@ def _market_trade_params(market: Market, trade: OptionTrade) -> Tuple[float, flo
     return r, q, sigma, S0, D
 
 
-def _simulate_one_path(S0: float, R_row: np.ndarray,n_steps: int,
-                       j_div: Optional[int], D: float) -> np.ndarray:
-    """Simulate a single GBM path using precomputed returns"""
-    out = np.empty(n_steps + 1, dtype=float)
 
-    # Adjust initial price if dividend occurs at t=0
-    S = _apply_dividend_scalar(S0, D) if j_div == 0 else S0
-    out[0] = S
+# Scalar implementation
+def _paths_scalar(
+    S0: float,
+    dW: np.ndarray,
+    n_steps: int,
+    drift_dt: float,
+    sigma: float,
+    j_div: Optional[int],
+    D: float
+) -> np.ndarray:
+    """
+    Generate all paths using pure Python scalar loop
+    """
+    n_paths = int(dW.shape[0])
+    paths = np.empty((n_paths, n_steps + 1), dtype=np.float64)
+    exp_ = math.exp
+    sig = sigma
+    mu = drift_dt
+    div_step = j_div
+    div_amount = D
+    min_price = _MIN_PRICE
 
-    # Iterate through time steps
-    for j in range(1, n_steps + 1):
-        S *= float(R_row[j - 1])
+    for i in range(n_paths):                    # one path at a time
+        row = paths[i]
+        shocks = dW[i]
 
-        # Apply dividend exactly at the ex-div step
-        if j_div is not None and j == j_div:
-            S = _apply_dividend_scalar(S, D)
-        out[j] = S
-    return out
+        S = S0
+        for j in range(n_steps):                # one step at a time
+            S = S * exp_(mu + sig * float(shocks[j]))
+            if div_step is not None and (j + 1) == div_step:
+                S = S - div_amount
+                if S < min_price:
+                    S = min_price
+            row[j + 1] = S
 
-def _paths_scalar(S0: float, R: np.ndarray, n_steps: int, j_div: Optional[int], D: float) -> np.ndarray:
-    """Generate all paths using a scalar loop (one path at a time)"""
-    n_paths = int(R.shape[0])
-    paths = np.empty((n_paths, n_steps + 1), dtype=float)
-    for i in range(n_paths):
-        paths[i, :] = _simulate_one_path(S0, R[i, :], n_steps, j_div, D)
     return paths
 
-def simulate_gbm_paths_scalar(market: Market, trade: OptionTrade, n_paths: int, n_steps: int,
-                              seed: int = 0, antithetic: bool = False) -> Tuple[np.ndarray, np.ndarray]:
+
+def _simulate_gbm_paths_scalar_from_dW(
+    market: Market,
+    trade: OptionTrade,
+    dW: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Scalar Monte Carlo simulation from pre-generated Brownian increments"""
+    T = float(trade.T)
+    n_paths, n_steps = dW.shape
+    dt = T / n_steps
+    times = _step_times(T, n_steps)
+
+    r, q, sigma, S0, D = _market_trade_params(market, trade)
+    drift_dt = (r - q - 0.5 * sigma * sigma) * dt
+    j_div = _ex_div_index(trade, dt, n_steps)
+
+    paths = _paths_scalar(S0, dW, n_steps, drift_dt, sigma, j_div, D)
+    return times, paths
+
+
+def simulate_gbm_paths_scalar(
+    market: Market,
+    trade: OptionTrade,
+    n_paths: int,
+    n_steps: int,
+    seed: int | None = None,
+    antithetic: bool = False,
+    dW: np.ndarray | None = None
+) -> Tuple[np.ndarray, np.ndarray]:
     """Scalar Monte Carlo simulation of GBM paths with optional dividend"""
     T = float(trade.T)
     dt = T / n_steps
-    times = _step_times(T, n_steps)
 
-    # Extract model parameters
-    r, q, sigma, S0, D = _market_trade_params(market, trade)
+    if dW is None:
+        bm = BrownianMotion(seed)
+        dW = bm.dW(n_paths, n_steps, dt, antithetic=antithetic)
+    else:
+        if dW.shape != (n_paths, n_steps):
+            raise ValueError(f"dW must have shape {(n_paths, n_steps)}, got {dW.shape}")
 
-    # Generate Brownian increments
-    bm = BrownianMotion(seed)
-    dW = bm.dW(n_paths, n_steps, dt, antithetic=antithetic)
+    return _simulate_gbm_paths_scalar_from_dW(market, trade, dW)
 
-    # Compute multiplicative GBM returns
-    R = _gbm_returns(r, q, sigma, dt, dW)
 
-    # Determine dividend step
-    j_div = _ex_div_index(trade, dt, n_steps)
-    paths = _paths_scalar(S0, R, n_steps, j_div, D)
-    return times, paths
-
-def _fill_paths_no_dividend(paths: np.ndarray, S0: float, R: np.ndarray) -> None:
-    """Fill paths when no dividend is present"""
+# Vector implementation
+def _fill_paths_no_dividend(
+    paths: np.ndarray,
+    S0: float,
+    dW: np.ndarray,
+    drift_dt: float,
+    sigma: float
+) -> None:
+    """
+    Fill all paths without dividend using log-space cumulative sum
+    """
     paths[:, 0] = S0
-    paths[:, 1:] = S0 * np.cumprod(R, axis=1)
+    if dW.shape[1] == 0:
+        return
 
-def _fill_paths_with_dividend(paths: np.ndarray, S0: float, R: np.ndarray, j_div: int, D: float) -> None:
-    """Fill paths when a dividend occurs during the simulation"""
+    log_inc = paths[:, 1:]                   
+    np.multiply(sigma, dW, out=log_inc)      
+    log_inc += drift_dt                      
+    np.cumsum(log_inc, axis=1, out=log_inc)  
+    log_inc += math.log(S0)                  
+    np.exp(log_inc, out=log_inc)             
+
+
+def _fill_paths_with_dividend(
+    paths: np.ndarray,
+    S0: float,
+    dW: np.ndarray,
+    drift_dt: float,
+    sigma: float,
+    j_div: int,
+    D: float
+) -> None:
+    """
+    Fill all paths with one discrete dividend at step j_div.
+    Splits simulation into two vectorized segments around the dividend date
+    """
+    n_steps = dW.shape[1]
     paths[:, 0] = S0
 
-    # Simulate up to dividend step
-    paths[:, 1:j_div + 1] = S0 * np.cumprod(R[:, :j_div], axis=1)
+    # Segment 1: simulate from S0 up to and including dividend step
+    if j_div > 0:
+        head = paths[:, 1:j_div + 1]
+        np.multiply(sigma, dW[:, :j_div], out=head)
+        head += drift_dt
+        np.cumsum(head, axis=1, out=head)
+        head += math.log(S0)
+        np.exp(head, out=head)
 
-    # Apply dividend adjustment
+    # Apply the discrete dividend at ex-div step
     _apply_dividend_at_step(paths, j_div, D)
 
-    # Continue evolution after dividend
-    if j_div < R.shape[1]:
-        tail = np.cumprod(R[:, j_div:], axis=1)
-        paths[:, j_div + 1:] = paths[:, [j_div]] * tail
+    # Segment 2: continue from post-dividend price
+    if j_div < n_steps:
+        tail = paths[:, j_div + 1:]
+        np.multiply(sigma, dW[:, j_div:], out=tail)
+        tail += drift_dt
+        np.cumsum(tail, axis=1, out=tail)
+        np.exp(tail, out=tail)
+        tail *= paths[:, [j_div]]            # scale by post-dividend starting price
 
-def _paths_vector(S0: float, R: np.ndarray, j_div: Optional[int], D: float) -> np.ndarray:
-    """Vectorized path generation"""
-    n_paths, n_steps = int(R.shape[0]), int(R.shape[1])
-    paths = np.empty((n_paths, n_steps + 1), dtype=float)
-    # Case 1: no dividend
+
+def _paths_vector(
+    S0: float,
+    dW: np.ndarray,
+    drift_dt: float,
+    sigma: float,
+    j_div: Optional[int],
+    D: float
+) -> np.ndarray:
+    """Fully vectorized path generation"""
+    n_paths, n_steps = int(dW.shape[0]), int(dW.shape[1])
+    paths = np.empty((n_paths, n_steps + 1), dtype=np.float64)
+
     if j_div is None or D == 0.0:
-        _fill_paths_no_dividend(paths, S0, R)
+        _fill_paths_no_dividend(paths, S0, dW, drift_dt, sigma)
         return paths
-    # Case 2: dividend at t=0
+
     if j_div == 0:
-        _fill_paths_no_dividend(paths, max(S0 - D, 1e-12), R)
+        # Dividend before first step: adjust S0 once, then simulate normally
+        S_init = max(S0 - D, _MIN_PRICE)
+        _fill_paths_no_dividend(paths, S_init, dW, drift_dt, sigma)
         return paths
-    # Case 3: dividend during simulation
-    _fill_paths_with_dividend(paths, S0, R, int(j_div), D)
+
+    _fill_paths_with_dividend(paths, S0, dW, drift_dt, sigma, int(j_div), D)
     return paths
 
-def simulate_gbm_paths_vector(market: Market, trade: OptionTrade, n_paths: int, n_steps: int,
-                              seed: int = 0, antithetic: bool = False) -> Tuple[np.ndarray, np.ndarray]:
-    """Vectorized Monte Carlo GBM simulation"""
+
+def _simulate_gbm_paths_vector_from_dW(
+    market: Market,
+    trade: OptionTrade,
+    dW: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Vectorized Monte Carlo GBM simulation from pre-generated Brownian increments"""
     global LAST_TIMES, LAST_PATHS
 
     T = float(trade.T)
+    n_paths, n_steps = dW.shape
     dt = T / n_steps
     times = _step_times(T, n_steps)
 
-    # Extract model parameters
     r, q, sigma, S0, D = _market_trade_params(market, trade)
-
-    # Generate Brownian motion increments
-    bm = BrownianMotion(seed)
-    dW = bm.dW(n_paths, n_steps, dt, antithetic=antithetic)
-
-    # Compute GBM returns
-    R = _gbm_returns(r, q, sigma, dt, dW)
-
-    # Determine dividend step
+    drift_dt = (r - q - 0.5 * sigma * sigma) * dt
     j_div = _ex_div_index(trade, dt, n_steps)
 
-    # Generate paths
-    paths = _paths_vector(S0, R, j_div, D)
+    paths = _paths_vector(S0, dW, drift_dt, sigma, j_div, D)
 
     LAST_TIMES, LAST_PATHS = times, paths
     return times, paths
+
+
+def simulate_gbm_paths_vector(
+    market: Market,
+    trade: OptionTrade,
+    n_paths: int,
+    n_steps: int,
+    seed: int | None = None,
+    antithetic: bool = False,
+    dW: np.ndarray | None = None
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Vectorized Monte Carlo GBM simulation — all paths computed simultaneously"""
+    T = float(trade.T)
+    dt = T / n_steps
+
+    if dW is None:
+        bm = BrownianMotion(seed)
+        dW = bm.dW(n_paths, n_steps, dt, antithetic=antithetic)
+    else:
+        if dW.shape != (n_paths, n_steps):
+            raise ValueError(f"dW must have shape {(n_paths, n_steps)}, got {dW.shape}")
+
+    return _simulate_gbm_paths_vector_from_dW(market, trade, dW)

@@ -162,11 +162,11 @@ def _plot_linear_fit(x: np.ndarray, y: np.ndarray, y_hat: np.ndarray,
         y_hat,
         linestyle="--",
         linewidth=2,
-        label=f"Fit: SE={a_coef:.3e}x + {b_coef:.3e} (R2={r2_lin:.3f})",
+        label=f"Fit: SE={a_coef:.3f}x + {b_coef:.3f} (R2={r2_lin:.3f})",
     )
-    plt.title("SE linearity test: SE vs 1/sqrt(N)")
+    plt.title("SE vs 1/sqrt(N)")
     plt.xlabel("1 / sqrt(N)")
-    plt.ylabel("Standard Error (SE)")
+    plt.ylabel("Standard Error")
     plt.grid(alpha=0.35)
     plt.legend()
     plt.tight_layout()
@@ -291,52 +291,40 @@ def test_se_linear_in_1_over_sqrtN(market: Market, trade: OptionTrade, N_list: l
 
 def _build_market() -> Market:
     """Create the market object used in the example"""
-    return Market(S0=100.0, r=0.05, sigma=0.30)
+    return Market(S0=100.0, r=0.10, sigma=0.20)
 
 
 def _build_trade() -> OptionTrade:
     """Create the European option used in the example"""
-    pricing_date = dt.date(2026, 2, 18)
-    maturity_date = dt.date(2027, 2, 18)
+    pricing_date = dt.date(2026, 3, 1)
+    maturity_date = dt.date(2026, 12, 25)
 
     return OptionTrade(
-        strike=102.0,
+        strike=100.0,
         is_call=True,
         exercise="european",
         pricing_date=pricing_date,
         maturity_date=maturity_date,
         q=0.0,
-        ex_div_date=None,
-        div_amount=0.0,
+        ex_div_date=dt.date(2026, 11, 30),
+        div_amount=3.0,
     )
 
 
 def main() -> None:
-    """Run the non-antithetic and antithetic SE scaling tests"""
+    """Run the SE scaling tests"""
     market = _build_market()
     trade = _build_trade()
-    n_list = [500, 1000, 2000, 5000, 10000, 15000, 20000]
+    n_list = [500, 1000, 2000, 5000, 10000, 12000, 15000, 20000, 50000, 100000]
 
-    # First test: standard Monte Carlo
     test_se_linear_in_1_over_sqrtN(
         market,
         trade,
         N_list=n_list,
         n_steps=100,
-        seed=42,
-        antithetic=False
-    )
-
-    # Second test: antithetic Monte Carlo.
-    test_se_linear_in_1_over_sqrtN(
-        market,
-        trade,
-        N_list=n_list,
-        n_steps=100,
-        seed=42,
+        seed=1,
         antithetic=True
     )
-
 
 if __name__ == "__main__":
     main()

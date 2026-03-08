@@ -7,10 +7,6 @@ from .utils.utils_grecs import OneDimDerivative
 from .pricer import price_tree_backward_direct
 
 def _get_price(market, option, N, exercise, optimize, threshold):
-    """
-    Pure tree backward pricing call.
-    No Excel. No input_parameters.
-    """
     out = price_tree_backward_direct(
         S0=market.S0,
         r=market.r,
@@ -19,7 +15,7 @@ def _get_price(market, option, N, exercise, optimize, threshold):
         is_call=option.is_call,
         exercise=exercise,
         pricing_date=market.pricing_date,
-        maturity_date=market.T,  # already embedded via T in market
+        maturity_date=market.T,
         N=N,
         ex_div_date=None if not market.dividends else market.dividends[0][0],
         div_amount=0.0 if not market.dividends else market.rho * market.S0,
@@ -38,8 +34,8 @@ def _greek_wrapper(params, x: float) -> float:
 def _finite_diff_2d(market, option, N, exercise, optimize, threshold, base_price):
 
     S0, sigma0 = market.S0, market.sigma
-    hS = max(1e-5, 0.01 * S0)
-    hSigma = max(1e-5, 0.005)
+    hS = 0.01
+    hSigma = 0.01
 
     def price_shift(dS=0.0, dSigma=0.0):
         m = copy.deepcopy(market)
@@ -73,8 +69,8 @@ def compute_tree_greeks_engine(
 ):
     base_price = _get_price(market, option, N, exercise, optimize, threshold)
 
-    hS = max(1e-5, 0.005 * market.S0)
-    hSigma = max(1e-5, 0.005)
+    hS = max(1e-4, 0.01 * market.S0)
+    hSigma = 0.01
     hR = 1e-4
     hT = 1.0 / 365.0
 

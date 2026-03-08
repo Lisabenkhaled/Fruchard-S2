@@ -45,9 +45,7 @@ def greek_wrapper(params, x: float) -> float:
 # 3. Dérivées croisées : Vanna & Vomma
 # -------------------------------------------------------------------------
 def finite_diff_2d(market, option, N, exercise, optimize, threshold, method, base_price):
-    """
-    Calcule Vanna (∂²V / ∂S∂σ) et Vomma (∂²V / ∂σ²) par différences finies centrées.
-    """
+    
     S0, sigma0 = market.S0, market.sigma
     hS = max(1e-5, 0.01 * S0)
     hSigma = max(1e-5, 0.005)

@@ -11,7 +11,7 @@ from model.path_simulator import (
     simulate_gbm_paths_scalar)
 
 def _digital_inputs(trade: OptionTrade, n_steps: int, digital_strike: float, payout: float) -> tuple[float, float, float]:
-    """Prepare common scalar inputs."""
+    """Prepare common scalar inputs"""
     T = float(trade.T)
     dt = T / int(n_steps)
     K = float(digital_strike)
@@ -19,7 +19,7 @@ def _digital_inputs(trade: OptionTrade, n_steps: int, digital_strike: float, pay
     return T, dt, K, pay
 
 def _discount_factor(r: float, hit_index: int, dt: float) -> float:
-    """Discount factor from hit time back to today."""
+    """Discount factor from hit time back to today"""
     return float(np.exp(-float(r) * (float(hit_index) * dt)))
 
 def price_american_digital_vector(market: Market, trade: OptionTrade, n_paths: int, n_steps: int,

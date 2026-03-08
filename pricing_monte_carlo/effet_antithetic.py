@@ -254,17 +254,17 @@ if __name__ == "__main__":
         n_points=30,
     )
 
-    market = Market(S0=100.0, r=0.03, sigma=0.25)
+    market = Market(S0=100.0, r=0.10, sigma=0.20)
 
     # European example
     eu_trade = OptionTrade(
         strike=100.0,
         is_call=True,
         exercise="European",
-        pricing_date=dt.date(2026, 2, 18),
-        maturity_date=dt.date(2026, 8, 18),
+        pricing_date=dt.date(2026, 3, 1),
+        maturity_date=dt.date(2026, 12, 25),
         q=0.0,
-        ex_div_date=dt.date(2026, 3, 18),
+        ex_div_date=dt.date(2026, 11, 30),
         div_amount=3.0,
     )
 
@@ -272,8 +272,8 @@ if __name__ == "__main__":
         market=market,
         trade=eu_trade,
         n_paths_grid=n_paths_grid,
-        n_steps=300,
-        seed=42
+        n_steps=100,
+        seed=1
     )
 
     # American LS example
@@ -281,11 +281,11 @@ if __name__ == "__main__":
         strike=100.0,
         is_call=False,
         exercise="american",
-        pricing_date=dt.date(2026, 2, 18),
-        maturity_date=dt.date(2027, 2, 18),
+        pricing_date=dt.date(2026, 3, 1),
+        maturity_date=dt.date(2026, 12, 25),
         q=0.0,
-        ex_div_date=None,
-        div_amount=0.0,
+        ex_div_date=dt.date(2026, 11, 30),
+        div_amount=3.0,
     )
 
     benchmark_noanti_vs_anti(
@@ -293,7 +293,7 @@ if __name__ == "__main__":
         trade=am_trade,
         n_paths_grid=n_paths_grid,
         n_steps=100,
-        seed=42,
+        seed=1,
         basis="laguerre",
         degree=2
     )

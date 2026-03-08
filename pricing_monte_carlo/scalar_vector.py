@@ -10,13 +10,14 @@ from numpy.typing import NDArray
 from model.market import Market
 from model.option import OptionTrade
 from model.mc_pricer import (
-    price_european_naive_mc_vector,
     price_european_naive_mc_scalar,
+    price_european_naive_mc_vector,
     price_american_naive_mc_vector,
     price_american_naive_mc_scalar,
     price_american_ls_vector,
     price_american_ls_scalar,
 )
+
 from utils.utils_stats import sample_std_anti, standard_error_anti
 
 # Types
@@ -181,17 +182,17 @@ def main() -> None:
     import datetime as dt
 
     n_paths_grid = make_n_paths_grid(n_min=1_000, n_max=100_000, n_points=30)
-    market = Market(S0=100.0, r=0.05, sigma=0.20)
+    market = Market(S0=100.0, r=0.10, sigma=0.20)
 
     # EU Options
     eu_trade = OptionTrade(
         strike=100.0,
         is_call=True,
-        exercise="European",
-        pricing_date=dt.date(2026, 2, 18),
-        maturity_date=dt.date(2026, 8, 18),
+        exercise="european",
+        pricing_date=dt.date(2026, 3, 1),
+        maturity_date=dt.date(2026, 12, 25),
         q=0.0,
-        ex_div_date=dt.date(2026, 3, 18),
+        ex_div_date=dt.date(2026, 11, 30),
         div_amount=3.0,
     )
 

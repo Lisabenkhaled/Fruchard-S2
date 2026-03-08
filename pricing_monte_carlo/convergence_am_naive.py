@@ -32,7 +32,7 @@ def _plot(
 
     # Plot
     plt.figure()
-    plt.plot(xx, yy, "o-", label=f"Naive American MC (seed={seed})")
+    plt.plot(xx, yy, "o-", label=f"Naive American MC")
     plt.axhline(tree_price, linestyle="--", label=f"Tree = {tree_price:.6f}")
     plt.xscale("log")
     plt.xlabel("Number of paths (log)")
@@ -107,18 +107,18 @@ trade: OptionTrade = OptionTrade(
     is_call=False,
     exercise="american",
     pricing_date=dt.date(2026, 3, 1),
-    maturity_date=dt.date(2026, 12, 26),
-    ex_div_date=None,
-    div_amount=0.0
+    maturity_date=dt.date(2026, 12, 25),
+    ex_div_date=dt.date(2026, 11, 30),
+    div_amount=3.0
 )
 
 results: NaiveAmVsTreeResult = naive_am_vs_tree(
     market=market,
     trade=trade,
     n_paths_list=(100, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000),
-    n_steps_mc=250,
-    tree_steps=250,
-    fixed_seed=42,
+    n_steps_mc=100,
+    tree_steps=100,
+    fixed_seed=1,
     antithetic=True,
     method_mc="vector"
 )

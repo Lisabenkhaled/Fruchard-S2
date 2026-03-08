@@ -85,26 +85,26 @@ if __name__ == "__main__":
     import datetime as dt  # dates
 
     # dates
-    pricing_date = dt.date(2026, 2, 18)  # t0
-    maturity_date = dt.date(2027, 2, 18)  # T
+    pricing_date = dt.date(2026, 3, 1)  # t0
+    maturity_date = dt.date(2026, 12, 25)  # T
 
     # market
-    market = Market(S0=100.0, r=0.05, sigma=0.30)  # market
+    market = Market(S0=100.0, r=0.10, sigma=0.20)  # market
 
     # trade
     trade = OptionTrade(
-        strike=102.0,  # strike
+        strike=100.0,  # strike
         is_call=True,  # call
         exercise="european",  # eu
         pricing_date=pricing_date,  # t0
         maturity_date=maturity_date,  # T
         q=0.0,  # q
-        ex_div_date=None,  # div date
+        ex_div_date=dt.date(2026, 11, 30),  # div date
         div_amount=0.0,  # div
     )
 
     # params
-    N = 10_000  # paths
+    N = 100_000  # paths
     seeds = list(range(1, 1001))  # seeds
 
     # run

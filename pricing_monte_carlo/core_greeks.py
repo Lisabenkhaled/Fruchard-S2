@@ -106,24 +106,24 @@ if __name__ == "__main__":
     maturity_date: dt.date = dt.date(2026, 12, 25)  # maturity
 
     # market
-    market: Market = Market(S0=100, r=0.05, sigma=0.2)  # inputs
+    market: Market = Market(S0=100, r=0.10, sigma=0.20)  # inputs
 
-    # trade
+    # trades
     trade: OptionTrade = OptionTrade(
         strike=100,  # strike
-        is_call=True,  # call/put
+        is_call=False,  # call/put
         exercise="european",  # european/american
         pricing_date=pricing_date,  # pricing date
         maturity_date=maturity_date,  # maturity
-        ex_div_date=None,  # dividend date
+        ex_div_date=dt.date(2026, 11, 30),  # dividend date
         div_amount=0.0,  # dividend amount
     )
 
-    # MC params
+    # MC param2s
     params: CorePricingParams = CorePricingParams(
         n_paths=100_000,  # paths
-        n_steps=300,  # steps
-        seed=2,  # seed
+        n_steps=100,  # steps
+        seed=1,  # seed
         antithetic=True,  # antithetic
         method="vector",  # vector only
         american_algo="ls",  # for AM

@@ -230,21 +230,21 @@ if __name__ == "__main__":
     import datetime as dt
 
     # Dates
-    pricing_date = dt.date(2026, 2, 18)
-    maturity_date = dt.date(2027, 2, 18)
+    pricing_date = dt.date(2026, 3, 1)
+    maturity_date = dt.date(2026, 12, 25)
 
     # Market inputs
-    market = Market(S0=100.0, r=0.05, sigma=0.30)
+    market = Market(S0=100.0, r=0.10, sigma=0.20)
 
     # Option
     trade = OptionTrade(
-        strike=102.0,
-        is_call=False,
+        strike=100.0,
+        is_call=True,
         exercise="european",
         pricing_date=pricing_date,
         maturity_date=maturity_date,
         q=0.0,
-        ex_div_date=dt.date(2026, 9, 18),
+        ex_div_date=dt.date(2026, 11, 30),
         div_amount=3.0,
     )
 
@@ -255,10 +255,10 @@ if __name__ == "__main__":
     plot_mc_histogram_with_ci(
         market=market,
         trade=trade,
-        n_paths=10_000,
-        n_steps=500,
+        n_paths=100000,
+        n_steps=100,
         seeds=seeds,
         antithetic=True,
         bins=28,
-        tree_N=500,
+        tree_N=100,
     )

@@ -182,7 +182,7 @@ def _build_example_market() -> Market:
 def _build_example_trade() -> OptionTrade:
     """Create the American option used in the script example"""
     pricing_date = dt.date(2026, 3, 1)
-    maturity_date = dt.date(2026, 12, 26)
+    maturity_date = dt.date(2026, 12, 25)
 
     return OptionTrade(
         strike=100.0,
@@ -191,7 +191,7 @@ def _build_example_trade() -> OptionTrade:
         pricing_date=pricing_date,
         maturity_date=maturity_date,
         q=0.0,
-        ex_div_date=dt.date(2026, 10, 30),
+        ex_div_date=dt.date(2026, 11, 30),
         div_amount=3.0,
     )
 
@@ -201,8 +201,8 @@ def main() -> None:
     market = _build_example_market()
     trade = _build_example_trade()
 
-    degrees = [1, 2, 3, 4, 5, 6, 7, 8]
-    seed = 42
+    degrees = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    seed = 1
 
     compare_bases_one_seed(
         market=market,

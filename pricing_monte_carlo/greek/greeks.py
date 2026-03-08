@@ -54,7 +54,7 @@ def _cross_second(f: Callable[[float, float], float], x: float, y: float, dx: fl
 def compute_greeks_vector(price_fn: PriceFn,market: Market,
     trade: OptionTrade,
     params: CorePricingParams,
-    shift_spot: float = 0.01,
+    shift_spot: float = 0.1,
     shift_vol: float = 0.01,
     shift_rate: float = 1e-4,
     shift_days: int = 1
